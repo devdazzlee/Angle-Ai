@@ -8,7 +8,7 @@ from utils.progress import parse_tag, TOTALS_BY_PHASE, smart_trim_history
 from middlewares.auth import verify_auth_token
 from fastapi.middleware.cors import CORSMiddleware
 import re
-# 
+
 router = APIRouter(
     tags=["Angel"],
     dependencies=[Depends(verify_auth_token)]
