@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'react-toastify';
 import ProgressCircle from '../../components/ProgressCircle';
 import TaskCard from '../../components/TaskCard';
@@ -7,6 +7,7 @@ import ServiceProviderModal from '../../components/ServiceProviderModal';
 import KickstartModal from '../../components/KickstartModal';
 import HelpModal from '../../components/HelpModal';
 import ComprehensiveSupport from '../../components/ComprehensiveSupport';
+import httpClient from '../../api/httpClient';
 import { 
   Target, 
   Users, 
@@ -67,6 +68,14 @@ const Implementation: React.FC<ImplementationProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'task' | 'support'>('task');
   
+  // Cache for ComprehensiveSupport API responses
+  const [agentsCache, setAgentsCache] = useState<any>(null);
+  const [providersCache, setProvidersCache] = useState<any>(null);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [providersLoading, setProvidersLoading] = useState(false);
+  const hasFetchedAgents = useRef(false);
+  const hasFetchedProviders = useRef(false);
+  
   // Modal states
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [showServiceProviderModal, setShowServiceProviderModal] = useState(false);
@@ -80,7 +89,72 @@ const Implementation: React.FC<ImplementationProps> = ({
 
   useEffect(() => {
     loadImplementationData();
+    // Pre-fetch ComprehensiveSupport data
+    fetchComprehensiveSupportData();
   }, [sessionId]);
+
+  // Refetch providers when current task changes
+  useEffect(() => {
+    if (currentTask?.id) {
+      // Reset providers cache and refetch with new task
+      hasFetchedProviders.current = false;
+      setProvidersCache(null);
+      fetchComprehensiveSupportData();
+    }
+  }, [currentTask?.id]);
+
+  // Fetch ComprehensiveSupport data
+  const fetchComprehensiveSupportData = async () => {
+    // Fetch agents data
+    if (!hasFetchedAgents.current && !agentsLoading) {
+      setAgentsLoading(true);
+      try {
+        const token = localStorage.getItem('sb_access_token');
+        const response = await httpClient.get('/specialized-agents/agents', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if ((response.data as any).success) {
+          setAgentsCache(response.data);
+          hasFetchedAgents.current = true;
+        }
+      } catch (error) {
+        console.error('Error fetching agents:', error);
+      } finally {
+        setAgentsLoading(false);
+      }
+    }
+
+    // Fetch providers data
+    if (!hasFetchedProviders.current && !providersLoading) {
+      setProvidersLoading(true);
+      try {
+        const token = localStorage.getItem('sb_access_token');
+        const response = await httpClient.post('/specialized-agents/provider-table', {
+          task_id: currentTask?.id || 'general business support',
+          task_context: currentTask?.id || 'general business support',
+          business_context: businessContext
+        }, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if ((response.data as any).success) {
+          setProvidersCache(response.data);
+          hasFetchedProviders.current = true;
+        }
+      } catch (error) {
+        console.error('Error fetching providers:', error);
+      } finally {
+        setProvidersLoading(false);
+      }
+    }
+  };
 
   // Use sessionData for business context if available
   const businessContext = sessionData || {
@@ -517,7 +591,7 @@ const Implementation: React.FC<ImplementationProps> = ({
           </div>
         ) : (
           <ComprehensiveSupport
-            taskContext={currentTask.title}
+            taskContext={currentTask.id}
             businessContext={businessContext}
             onProviderSelect={(provider) => {
               console.log('Provider selected:', provider);
@@ -535,6 +609,10 @@ const Implementation: React.FC<ImplementationProps> = ({
               console.log('Command completed:', response);
               toast.success('Command executed successfully!');
             }}
+            agentsCache={agentsCache}
+            providersCache={providersCache}
+            agentsLoading={agentsLoading}
+            providersLoading={providersLoading}
           />
         )}
       </div>

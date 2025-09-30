@@ -15,13 +15,13 @@ def should_conduct_web_search():
     """Throttle web searches to prevent excessive API calls"""
     global web_search_count, web_search_reset_time
     
-    # Reset counter every 30 seconds for faster reset
-    if (datetime.now() - web_search_reset_time).seconds > 30:
+    # Reset counter every 10 seconds for faster reset during implementation
+    if (datetime.now() - web_search_reset_time).seconds > 10:
         web_search_count = 0
         web_search_reset_time = datetime.now()
     
-    # Allow maximum 1 web search per 30 seconds for faster response
-    if web_search_count >= 1:
+    # Allow maximum 2 web searches per 10 seconds for better performance
+    if web_search_count >= 2:
         return False
     
     web_search_count += 1
@@ -82,7 +82,8 @@ async def conduct_web_search(query):
                 "content": f"Search for current information about: {query}. Provide a concise summary of key findings in 1 sentence."
             }],
             temperature=0.1,  # Lower temperature for more focused results
-            max_tokens=80  # Further reduced token limit for faster processing
+            max_tokens=50,  # Further reduced token limit for faster processing
+            timeout=3.0  # 3 second timeout for faster response
         )
         
         # Extract search results from response
@@ -785,24 +786,24 @@ Do NOT include question numbers, progress percentages, or step counts in your re
     user_content = user_msg["content"].strip()
     print(f"🚀 Starting Angel reply generation for: {user_content[:50]}...")
     
-    # Check if KYC phase is complete (question 2 for testing)
+    # Check if KYC phase is complete (question 20 for full flow)
     if session_data and session_data.get("current_phase") == "KYC":
         current_tag = session_data.get("asked_q", "")
         if current_tag and current_tag.startswith("KYC."):
             try:
                 question_num = int(current_tag.split(".")[1])
-                if question_num >= 2:  # KYC complete (reduced from 20 to 2 for testing)
+                if question_num >= 20:  # KYC complete (restored to full 20 questions)
                     return await handle_kyc_completion(session_data, history)
             except (ValueError, IndexError):
                 pass
     
-    # Check if Business Plan phase is complete (question 2 for testing)
+    # Check if Business Plan phase is complete (question 46 for full flow)
     if session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
         current_tag = session_data.get("asked_q", "")
         if current_tag and current_tag.startswith("BUSINESS_PLAN."):
             try:
                 question_num = int(current_tag.split(".")[1])
-                if question_num >= 2:  # Business Plan complete (reduced from 46 to 2 for testing)
+                if question_num >= 46:  # Business Plan complete (restored to full 46 questions)
                     return await handle_business_plan_completion(session_data, history)
             except (ValueError, IndexError):
                 pass
@@ -820,7 +821,7 @@ Do NOT include question numbers, progress percentages, or step counts in your re
                     next_tag = f"BUSINESS_PLAN.{next_num:02d}"
                     
                     # Check if we've reached the end of business plan questions
-                    if next_num > 2:  # Business plan is complete (reduced from 46 to 2 for testing)
+                    if next_num > 46:  # Business plan is complete (restored to full 46 questions)
                         # Business plan is complete, trigger completion
                         return await handle_business_plan_completion(session_data, history)
                     

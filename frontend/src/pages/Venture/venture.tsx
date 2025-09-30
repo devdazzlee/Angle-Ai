@@ -66,7 +66,7 @@ export default function ChatPage() {
     // Extract business name from conversation history
     history.forEach(pair => {
       const question = pair.question.toLowerCase();
-      const answer = pair.answer.toLowerCase();
+      const _answer = pair.answer.toLowerCase();
       
       // Look for business name questions
       if (question.includes('business name') || question.includes('company name') || question.includes('venture name')) {

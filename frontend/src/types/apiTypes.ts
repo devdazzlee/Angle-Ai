@@ -95,7 +95,10 @@ export interface Agent {
 
 export interface AgentsResponse {
   success: boolean;
-  agents: Agent[];
+  result: {
+    agents: Agent[];
+    total_agents: number;
+  };
   message?: string;
 }
 

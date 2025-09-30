@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, MapPin, Globe, Building2, DollarSign, Phone, Mail, ExternalLink, Star, CheckCircle, AlertCircle } from 'lucide-react';
+import { Loader2, MapPin, Globe, Building2, DollarSign, Star, CheckCircle, AlertCircle } from 'lucide-react';
 import httpClient from '../api/httpClient';
 
 interface ServiceProvider {
@@ -7,15 +7,11 @@ interface ServiceProvider {
   type: string;
   local: boolean;
   description: string;
-  contact_info: {
-    phone?: string;
-    email?: string;
-    website?: string;
-  };
-  rating?: number;
-  specialties: string[];
-  pricing?: string;
-  location?: string;
+  key_considerations: string;
+  estimated_cost: string;
+  contact_method: string;
+  specialties: string;
+  category: string;
 }
 
 interface ServiceProviderTableProps {
@@ -28,23 +24,56 @@ interface ServiceProviderTableProps {
   };
   onProviderSelect?: (provider: ServiceProvider) => void;
   className?: string;
+  cachedData?: any;
+  isLoading?: boolean;
 }
 
 const ServiceProviderTable: React.FC<ServiceProviderTableProps> = ({
   taskContext,
   businessContext,
   onProviderSelect,
-  className = ""
+  className = "",
+  cachedData,
+  isLoading = false
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ServiceProvider[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedLocation, setSelectedLocation] = useState<string>('all');
 
   useEffect(() => {
-    fetchProviders();
-  }, [taskContext, businessContext]);
+    if (cachedData) {
+      // Use cached data
+      const providerData = cachedData.result.providers.provider_table.original_table;
+      const allProviders: ServiceProvider[] = [];
+      
+      // Flatten providers from all categories
+      if (providerData && providerData.provider_tables) {
+        Object.entries(providerData.provider_tables).forEach(([categoryName, category]: [string, any]) => {
+          if (category && category.providers) {
+            // Add category name to each provider
+            const providersWithCategory = category.providers.map((provider: any) => ({
+              ...provider,
+              category: categoryName
+            }));
+            allProviders.push(...providersWithCategory);
+          }
+        });
+      }
+      
+      // Extract categories from the API response
+      const availableCategories = Object.keys(providerData.provider_tables || {});
+      
+      setProviders(allProviders);
+      setCategories(availableCategories);
+      setLoading(false);
+    } else if (!isLoading) {
+      // Only fetch if not loading and no cached data
+      fetchProviders();
+    }
+  }, [taskContext, businessContext, cachedData, isLoading]);
 
   const fetchProviders = async () => {
     setLoading(true);
@@ -58,7 +87,7 @@ const ServiceProviderTable: React.FC<ServiceProviderTableProps> = ({
       }
 
       const response = await httpClient.post('/specialized-agents/provider-table', {
-        task_context: taskContext,
+        task_id: taskContext, // Use task_id instead of task_context
         business_context: businessContext,
         location: businessContext.location
       }, {
@@ -69,17 +98,28 @@ const ServiceProviderTable: React.FC<ServiceProviderTableProps> = ({
       });
 
       if ((response.data as any).success) {
-        const providerData = (response.data as any).result.provider_table;
+        const providerData = (response.data as any).result.providers.provider_table.original_table;
         const allProviders: ServiceProvider[] = [];
         
         // Flatten providers from all categories
-        Object.values(providerData).forEach((category: any) => {
-          if (category.providers) {
-            allProviders.push(...category.providers);
-          }
-        });
+        if (providerData && providerData.provider_tables) {
+          Object.entries(providerData.provider_tables).forEach(([categoryName, category]: [string, any]) => {
+            if (category && category.providers) {
+              // Add category name to each provider
+              const providersWithCategory = category.providers.map((provider: any) => ({
+                ...provider,
+                category: categoryName
+              }));
+              allProviders.push(...providersWithCategory);
+            }
+          });
+        }
+        
+        // Extract categories from the API response
+        const availableCategories = Object.keys(providerData.provider_tables || {});
         
         setProviders(allProviders);
+        setCategories(availableCategories);
       } else {
         setError((response.data as any).message || 'Failed to fetch service providers');
       }
@@ -96,7 +136,7 @@ const ServiceProviderTable: React.FC<ServiceProviderTableProps> = ({
 
     if (selectedCategory !== 'all') {
       filtered = filtered.filter(provider => 
-        provider.type.toLowerCase().includes(selectedCategory.toLowerCase())
+        provider.category === selectedCategory
       );
     }
 
@@ -111,24 +151,8 @@ const ServiceProviderTable: React.FC<ServiceProviderTableProps> = ({
     return filtered;
   };
 
-  const getCategories = () => {
-    const categories = new Set(providers.map(p => p.type));
-    return Array.from(categories);
-  };
-
-  const getRatingStars = (rating: number) => {
-    return Array.from({ length: 5 }, (_, i) => (
-      <Star
-        key={i}
-        className={`h-4 w-4 ${
-          i < rating ? 'text-yellow-400 fill-current' : 'text-gray-300'
-        }`}
-      />
-    ));
-  };
 
   const filteredProviders = getFilteredProviders();
-  const categories = getCategories();
 
   return (
     <div className={`bg-white rounded-lg shadow-sm border border-gray-200 ${className}`}>
@@ -181,7 +205,7 @@ const ServiceProviderTable: React.FC<ServiceProviderTableProps> = ({
         </div>
 
         {/* Loading State */}
-        {loading && (
+        {(loading || isLoading) && (
           <div className="flex items-center justify-center py-8">
             <div className="text-center">
               <Loader2 className="h-8 w-8 animate-spin text-blue-500 mx-auto mb-2" />
@@ -223,75 +247,47 @@ const ServiceProviderTable: React.FC<ServiceProviderTableProps> = ({
                       )}
                     </div>
                   </div>
-                  {provider.rating && (
-                    <div className="flex items-center gap-1">
-                      {getRatingStars(provider.rating)}
-                      <span className="text-sm text-gray-600 ml-1">({provider.rating})</span>
-                    </div>
-                  )}
                 </div>
 
                 {/* Description */}
                 <p className="text-sm text-gray-700 mb-3 line-clamp-2">{provider.description}</p>
 
                 {/* Specialties */}
-                {provider.specialties && provider.specialties.length > 0 && (
+                {provider.specialties && (
                   <div className="mb-3">
                     <div className="text-xs font-medium text-gray-600 mb-1">Specialties:</div>
                     <div className="flex flex-wrap gap-1">
-                      {provider.specialties.slice(0, 3).map((specialty, idx) => (
-                        <span
-                          key={idx}
-                          className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
-                        >
-                          {specialty}
-                        </span>
-                      ))}
-                      {provider.specialties.length > 3 && (
-                        <span className="text-xs text-gray-500">
-                          +{provider.specialties.length - 3} more
-                        </span>
-                      )}
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {provider.specialties}
+                      </span>
                     </div>
                   </div>
                 )}
 
-                {/* Contact Info */}
-                <div className="space-y-2">
-                  {provider.contact_info.phone && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Phone className="h-4 w-4" />
-                      <span>{provider.contact_info.phone}</span>
-                    </div>
-                  )}
-                  {provider.contact_info.email && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Mail className="h-4 w-4" />
-                      <span>{provider.contact_info.email}</span>
-                    </div>
-                  )}
-                  {provider.contact_info.website && (
+                {/* Key Considerations */}
+                {provider.key_considerations && (
+                  <div className="mb-3">
+                    <div className="text-xs font-medium text-gray-600 mb-1">Key Considerations:</div>
+                    <p className="text-sm text-gray-700">{provider.key_considerations}</p>
+                  </div>
+                )}
+
+                {/* Contact Method */}
+                {provider.contact_method && (
+                  <div className="space-y-2">
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                       <Globe className="h-4 w-4" />
-                      <a
-                        href={provider.contact_info.website}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                      >
-                        Website
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
+                      <span>{provider.contact_method}</span>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 {/* Pricing */}
-                {provider.pricing && (
+                {provider.estimated_cost && (
                   <div className="mt-3 pt-3 border-t border-gray-100">
                     <div className="flex items-center gap-2 text-sm">
                       <DollarSign className="h-4 w-4 text-green-600" />
-                      <span className="font-medium text-gray-900">{provider.pricing}</span>
+                      <span className="font-medium text-gray-900">{provider.estimated_cost}</span>
                     </div>
                   </div>
                 )}

@@ -126,12 +126,7 @@ Choose the style that feels most natural to you:
 • Step-by-step progression
 • Great for comprehensive planning
 
-🔵 **Visual/Interactive** - Coming Soon!
-• Clickable icons and visual elements
-• Interactive diagrams and charts
-• Engaging visual learning experience
-
-Simply type your choice: "Conversational", "Structured", or "Visual"
+Simply type your choice: "Conversational" or "Structured"
 
 [[Q:KYC.03]] Have you started a business before?
 • Yes / No
@@ -350,7 +345,7 @@ Let's build the business of your dreams together!
 Ready to dive into your business planning?"
 
 --- PHASE 2: BUSINESS PLAN ---
-Ask exactly 2 questions for testing purposes. Use only the first 2 questions from the complete question set below, with these modifications:
+Ask all 46 questions in sequence. Use the complete question set below, with these modifications:
 
 • Remove redundant questions that overlap with KYC
 • Make guiding questions specific and supportive of the main question (not introducing different aspects)
@@ -394,7 +389,7 @@ VERIFICATION REQUIREMENTS:
 CRITICAL RULES:
 • NEVER mold user answers into mission, vision, USP without explicit verification
 • Ask each question individually - do NOT combine multiple questions
-• Start with BUSINESS_PLAN.01 and proceed sequentially (only 2 questions for testing)
+• Start with BUSINESS_PLAN.01 and proceed sequentially (all 46 questions)
 • Do NOT jump ahead to later questions
 • Wait for user response before moving to next question
 

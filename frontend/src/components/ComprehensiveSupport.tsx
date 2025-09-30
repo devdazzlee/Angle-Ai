@@ -26,6 +26,10 @@ interface ComprehensiveSupportProps {
   onAgentResponse?: (agent: any, response: string) => void;
   onCommandComplete?: (response: any) => void;
   className?: string;
+  agentsCache?: any;
+  providersCache?: any;
+  agentsLoading?: boolean;
+  providersLoading?: boolean;
 }
 
 const ComprehensiveSupport: React.FC<ComprehensiveSupportProps> = ({
@@ -35,7 +39,11 @@ const ComprehensiveSupport: React.FC<ComprehensiveSupportProps> = ({
   onResearchComplete,
   onAgentResponse,
   onCommandComplete,
-  className = ""
+  className = "",
+  agentsCache,
+  providersCache,
+  agentsLoading = false,
+  providersLoading = false
 }) => {
   const [activeTab, setActiveTab] = useState<string>('providers');
   const [loading] = useState(false);
@@ -76,6 +84,8 @@ const ComprehensiveSupport: React.FC<ComprehensiveSupportProps> = ({
             taskContext={taskContext || 'general business support'}
             businessContext={businessContext}
             onProviderSelect={onProviderSelect}
+            cachedData={providersCache}
+            isLoading={providersLoading}
           />
         );
       case 'research':
@@ -90,6 +100,8 @@ const ComprehensiveSupport: React.FC<ComprehensiveSupportProps> = ({
           <SpecializedAgents
             businessContext={businessContext}
             onAgentResponse={onAgentResponse}
+            cachedData={agentsCache}
+            isLoading={agentsLoading}
           />
         );
       case 'commands':

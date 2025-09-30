@@ -58,7 +58,9 @@ async def get_provider_table(
         raise HTTPException(status_code=400, detail="Task ID is required")
     
     try:
-        providers = await get_task_providers(task_id, business_context)
+        # Create task description from task_id
+        task_description = f"implementation task {task_id}"
+        providers = await get_task_providers(task_id, task_description, business_context)
         
         return {
             "success": True,
@@ -78,12 +80,26 @@ async def get_agents(request: Request):
     try:
         agent_info = agents_manager.get_agent_info()
         
+        # Convert dictionary to array format expected by frontend
+        agents_array = []
+        for agent_type, info in agent_info.items():
+            agents_array.append({
+                "id": agent_type,
+                "agent_type": agent_type,
+                "name": info["name"],
+                "description": f"Specialized agent for {agent_type.replace('_', ' ')}",
+                "capabilities": ["guidance", "research", "recommendations"],
+                "expertise_areas": [agent_type],
+                "expertise": info["expertise"],
+                "research_sources": info["research_sources"]
+            })
+        
         return {
             "success": True,
             "message": "Available agents retrieved successfully",
             "result": {
-                "agents": agent_info,
-                "total_agents": len(agent_info)
+                "agents": agents_array,
+                "total_agents": len(agents_array)
             }
         }
     except Exception as e:

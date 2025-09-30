@@ -13,6 +13,9 @@ class RAGResearchEngine:
     """Retrieval Augmentation Generation engine for comprehensive research"""
     
     def __init__(self):
+        # Add caching for performance optimization
+        self.cache = {}
+        self.cache_ttl = 3600  # 1 hour cache TTL
         self.authoritative_sources = {
             "government": [
                 "sba.gov", "sec.gov", "irs.gov", "uspto.gov", "ftc.gov",
@@ -41,13 +44,33 @@ class RAGResearchEngine:
         }
     
     async def conduct_comprehensive_research(self, query: str, business_context: Dict[str, Any], research_depth: str = "standard") -> Dict[str, Any]:
-        """Conduct comprehensive research using multiple authoritative sources"""
+        """Conduct comprehensive research using multiple authoritative sources with caching"""
+        
+        # Check cache first for performance
+        cache_key = f"{query}_{research_depth}_{hash(str(business_context))}"
+        if cache_key in self.cache:
+            cached_result = self.cache[cache_key]
+            if (datetime.now() - cached_result['timestamp']).seconds < self.cache_ttl:
+                print(f"📋 Using cached research for: {query[:50]}...")
+                return cached_result['data']
         
         # Enhance query with business context
         enhanced_query = self._enhance_query(query, business_context)
         
+        # For implementation phase, use minimal research for speed
+        if research_depth == "implementation_fast":
+            return await self._conduct_fast_research(query, business_context)
+        
         # Determine research scope based on depth
         research_sources = self._get_research_sources(research_depth)
+        
+        # Limit sources for faster processing
+        if research_depth == "standard":
+            # Reduce to 2 sources per category for speed
+            limited_sources = {}
+            for category, sources in research_sources.items():
+                limited_sources[category] = sources[:2]
+            research_sources = limited_sources
         
         # Conduct parallel research across different source categories
         research_tasks = []
@@ -65,11 +88,62 @@ class RAGResearchEngine:
         # Generate comprehensive analysis
         analysis = await self._generate_research_analysis(organized_results, query, business_context)
         
-        return {
+        result = {
             "query": query,
             "enhanced_query": enhanced_query,
             "business_context": business_context,
             "research_depth": research_depth,
+            "research_results": organized_results,
+            "analysis": analysis,
+            "timestamp": datetime.now().isoformat(),
+            "sources_consulted": len([r for r in research_results if not isinstance(r, Exception)])
+        }
+        
+        # Cache the result
+        self.cache[cache_key] = {
+            'data': result,
+            'timestamp': datetime.now()
+        }
+        
+        return result
+    
+    async def _conduct_fast_research(self, query: str, business_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Conduct fast research for implementation phase with minimal sources"""
+        
+        # Use only the most essential sources for speed
+        fast_sources = {
+            "government": ["sba.gov"],
+            "industry_reports": ["hbr.org"]
+        }
+        
+        # Conduct minimal research
+        research_tasks = []
+        for category, sources in fast_sources.items():
+            for source in sources:
+                task = self._research_single_source(source, query, category)
+                research_tasks.append(task)
+        
+        # Execute with timeout for speed
+        try:
+            research_results = await asyncio.wait_for(
+                asyncio.gather(*research_tasks, return_exceptions=True),
+                timeout=5.0  # 5 second timeout
+            )
+        except asyncio.TimeoutError:
+            print(f"⏰ Fast research timeout for: {query[:50]}...")
+            research_results = []
+        
+        # Process results quickly
+        organized_results = self._organize_research_results(research_results, fast_sources)
+        
+        # Generate quick analysis
+        analysis = "Based on current business best practices and regulatory requirements, here are the key considerations for this implementation task."
+        
+        return {
+            "query": query,
+            "enhanced_query": query,
+            "business_context": business_context,
+            "research_depth": "implementation_fast",
             "research_results": organized_results,
             "analysis": analysis,
             "timestamp": datetime.now().isoformat(),
@@ -346,17 +420,29 @@ class RAGServiceProviderEngine:
     """RAG engine specifically for service provider research and recommendations"""
     
     def __init__(self):
+        # Add caching for performance optimization
+        self.cache = {}
+        self.cache_ttl = 1800  # 30 minutes cache TTL
+        
+        # Reduced sources for faster response (max 2 per category)
         self.provider_sources = {
-            "legal": ["martindale.com", "lawyers.com", "avvo.com", "findlaw.com"],
-            "financial": ["cpa.com", "aicpa.org", "bankrate.com", "nerdwallet.com"],
-            "marketing": ["hubspot.com", "marketingland.com", "clutch.co", "upwork.com"],
-            "operations": ["alibaba.com", "amazon.com", "linkedin.com", "indeed.com"],
-            "technology": ["gartner.com", "forrester.com", "techcrunch.com", "wired.com"],
-            "general": ["yelp.com", "google.com", "bbb.org", "angieslist.com"]
+            "legal": ["martindale.com", "lawyers.com"],
+            "financial": ["cpa.com", "aicpa.org"],
+            "marketing": ["hubspot.com", "marketingland.com"],
+            "operations": ["alibaba.com", "amazon.com"],
+            "technology": ["gartner.com", "forrester.com"],
+            "general": ["yelp.com", "google.com"]
         }
     
     async def research_service_providers(self, service_type: str, business_context: Dict[str, Any], location: str = None) -> Dict[str, Any]:
         """Research service providers for a specific service type"""
+        
+        # Check cache first
+        cache_key = f"{service_type}_{business_context.get('industry', '')}_{location or 'default'}"
+        if cache_key in self.cache:
+            cache_entry = self.cache[cache_key]
+            if (datetime.now() - cache_entry['timestamp']).seconds < self.cache_ttl:
+                return cache_entry['data']
         
         # Determine relevant sources for the service type
         relevant_sources = self.provider_sources.get(service_type, self.provider_sources["general"])
@@ -381,7 +467,8 @@ class RAGServiceProviderEngine:
         # Generate provider recommendations
         recommendations = await self._generate_provider_recommendations(providers, service_type, business_context)
         
-        return {
+        # Store in cache
+        result = {
             "service_type": service_type,
             "business_context": business_context,
             "location": location,
@@ -390,6 +477,13 @@ class RAGServiceProviderEngine:
             "recommendations": recommendations,
             "timestamp": datetime.now().isoformat()
         }
+        
+        self.cache[cache_key] = {
+            "data": result,
+            "timestamp": datetime.now()
+        }
+        
+        return result
     
     async def _research_provider_source(self, source: str, query: str, service_type: str) -> Dict[str, Any]:
         """Research providers from a single source"""

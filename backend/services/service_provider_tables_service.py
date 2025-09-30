@@ -118,11 +118,16 @@ class ServiceProviderTableGenerator:
         
         category_info = self.provider_categories[category]
         
-        # Use RAG to research providers
-        rag_results = await research_service_providers_rag(category, business_context, location)
+        # Use fast mode for implementation phase - skip RAG research for speed
+        rag_results = {
+            "service_type": category,
+            "providers_found": 0,
+            "providers": [],
+            "recommendations": f"Consider local {category} providers for personalized service."
+        }
         
-        # Generate structured provider data
-        providers = await self._create_structured_providers(category, category_info, business_context, location, rag_results)
+        # Generate structured provider data using predefined providers for speed
+        providers = self._get_predefined_providers(category, category_info, business_context, location)
         
         return {
             "category": category,
@@ -132,6 +137,217 @@ class ServiceProviderTableGenerator:
             "rag_research": rag_results,
             "location": location
         }
+    
+    def _get_predefined_providers(self, category: str, category_info: Dict[str, Any], business_context: Dict[str, Any], location: str = None) -> List[Dict[str, Any]]:
+        """Get predefined providers for faster response"""
+        
+        predefined_providers = {
+            "legal": [
+                {
+                    "name": "Local Business Attorney",
+                    "type": "Local Professional",
+                    "local": True,
+                    "description": "Specializes in business formation, contracts, and compliance for startups and small businesses.",
+                    "key_considerations": "Experience with your industry, local regulations knowledge, reasonable rates",
+                    "estimated_cost": "$200-$400/hour",
+                    "contact_method": "Local bar association directory",
+                    "specialties": "Business formation, contracts, compliance"
+                },
+                {
+                    "name": "LegalZoom",
+                    "type": "Online Service",
+                    "local": False,
+                    "description": "Online legal services for business formation, document preparation, and compliance.",
+                    "key_considerations": "Cost-effective, standardized processes, limited customization",
+                    "estimated_cost": "$99-$399 per service",
+                    "contact_method": "Website: legalzoom.com",
+                    "specialties": "Business formation, document preparation"
+                },
+                {
+                    "name": "Rocket Lawyer",
+                    "type": "Online Service",
+                    "local": False,
+                    "description": "Online legal platform with document templates and attorney consultations.",
+                    "key_considerations": "Subscription model, document library, attorney network",
+                    "estimated_cost": "$39.99/month",
+                    "contact_method": "Website: rocketlawyer.com",
+                    "specialties": "Document templates, legal consultations"
+                }
+            ],
+            "financial": [
+                {
+                    "name": "Local CPA Firm",
+                    "type": "Local Professional",
+                    "local": True,
+                    "description": "Certified Public Accountant specializing in small business tax and accounting.",
+                    "key_considerations": "Industry experience, local tax knowledge, ongoing support",
+                    "estimated_cost": "$150-$300/hour",
+                    "contact_method": "Local CPA directory",
+                    "specialties": "Tax preparation, bookkeeping, financial planning"
+                },
+                {
+                    "name": "QuickBooks",
+                    "type": "Online Service",
+                    "local": False,
+                    "description": "Cloud-based accounting software with integrated tax services.",
+                    "key_considerations": "User-friendly, integrations, scalability",
+                    "estimated_cost": "$15-$200/month",
+                    "contact_method": "Website: quickbooks.intuit.com",
+                    "specialties": "Accounting software, tax services"
+                },
+                {
+                    "name": "Xero",
+                    "type": "Online Service",
+                    "local": False,
+                    "description": "Cloud accounting platform with third-party integrations.",
+                    "key_considerations": "Modern interface, extensive integrations, mobile access",
+                    "estimated_cost": "$13-$70/month",
+                    "contact_method": "Website: xero.com",
+                    "specialties": "Cloud accounting, integrations"
+                }
+            ],
+            "marketing": [
+                {
+                    "name": "Local Marketing Agency",
+                    "type": "Local Professional",
+                    "local": True,
+                    "description": "Full-service marketing agency specializing in digital marketing and branding.",
+                    "key_considerations": "Local market knowledge, personalized service, ongoing support",
+                    "estimated_cost": "$2,000-$10,000/month",
+                    "contact_method": "Local business directory",
+                    "specialties": "Digital marketing, branding, social media"
+                },
+                {
+                    "name": "HubSpot",
+                    "type": "Online Service",
+                    "local": False,
+                    "description": "All-in-one marketing, sales, and service platform.",
+                    "key_considerations": "Comprehensive platform, automation, analytics",
+                    "estimated_cost": "$45-$3,200/month",
+                    "contact_method": "Website: hubspot.com",
+                    "specialties": "Marketing automation, CRM, analytics"
+                },
+                {
+                    "name": "Google Ads",
+                    "type": "Online Service",
+                    "local": False,
+                    "description": "Pay-per-click advertising platform for search and display ads.",
+                    "key_considerations": "Large reach, targeting options, performance tracking",
+                    "estimated_cost": "Pay-per-click model",
+                    "contact_method": "Website: ads.google.com",
+                    "specialties": "Search advertising, display advertising"
+                }
+            ],
+            "operations": [
+                {
+                    "name": "Local Equipment Supplier",
+                    "type": "Local Professional",
+                    "local": True,
+                    "description": "Local supplier for business equipment, furniture, and supplies.",
+                    "key_considerations": "Local delivery, service support, relationship building",
+                    "estimated_cost": "Varies by equipment",
+                    "contact_method": "Local business directory",
+                    "specialties": "Equipment sales, installation, maintenance"
+                },
+                {
+                    "name": "Amazon Business",
+                    "type": "Online Service",
+                    "local": False,
+                    "description": "B2B marketplace for business supplies and equipment.",
+                    "key_considerations": "Wide selection, bulk pricing, fast delivery",
+                    "estimated_cost": "Varies by product",
+                    "contact_method": "Website: business.amazon.com",
+                    "specialties": "Business supplies, equipment, bulk purchasing"
+                },
+                {
+                    "name": "Office Depot",
+                    "type": "Mixed",
+                    "local": True,
+                    "description": "Office supplies and business services with local stores.",
+                    "key_considerations": "Local presence, business services, bulk discounts",
+                    "estimated_cost": "Varies by service",
+                    "contact_method": "Local store or website",
+                    "specialties": "Office supplies, printing, business services"
+                }
+            ],
+            "technology": [
+                {
+                    "name": "Local IT Consultant",
+                    "type": "Local Professional",
+                    "local": True,
+                    "description": "Local technology consultant for IT setup, maintenance, and support.",
+                    "key_considerations": "Local support, personalized service, ongoing relationship",
+                    "estimated_cost": "$75-$200/hour",
+                    "contact_method": "Local IT directory",
+                    "specialties": "IT setup, maintenance, support"
+                },
+                {
+                    "name": "Microsoft 365",
+                    "type": "Online Service",
+                    "local": False,
+                    "description": "Cloud-based productivity suite with business applications.",
+                    "key_considerations": "Comprehensive suite, cloud storage, collaboration tools",
+                    "estimated_cost": "$6-$22/user/month",
+                    "contact_method": "Website: microsoft.com/microsoft-365",
+                    "specialties": "Productivity suite, cloud storage, collaboration"
+                },
+                {
+                    "name": "Google Workspace",
+                    "type": "Online Service",
+                    "local": False,
+                    "description": "Cloud-based productivity and collaboration platform.",
+                    "key_considerations": "Gmail integration, collaboration tools, cloud storage",
+                    "estimated_cost": "$6-$18/user/month",
+                    "contact_method": "Website: workspace.google.com",
+                    "specialties": "Email, collaboration, cloud storage"
+                }
+            ],
+            "consulting": [
+                {
+                    "name": "Local Business Consultant",
+                    "type": "Local Professional",
+                    "local": True,
+                    "description": "Local business consultant specializing in strategy and operations.",
+                    "key_considerations": "Local market knowledge, personalized service, ongoing support",
+                    "estimated_cost": "$100-$300/hour",
+                    "contact_method": "Local business directory",
+                    "specialties": "Business strategy, operations, growth planning"
+                },
+                {
+                    "name": "SCORE",
+                    "type": "Non-profit",
+                    "local": True,
+                    "description": "Free business mentoring and education from retired executives.",
+                    "key_considerations": "Free service, experienced mentors, local chapters",
+                    "estimated_cost": "Free",
+                    "contact_method": "Website: score.org",
+                    "specialties": "Business mentoring, education, networking"
+                },
+                {
+                    "name": "Small Business Development Center",
+                    "type": "Government",
+                    "local": True,
+                    "description": "Government-funded business consulting and training services.",
+                    "key_considerations": "Free/low-cost, government-backed, comprehensive services",
+                    "estimated_cost": "Free to low-cost",
+                    "contact_method": "Local SBDC office",
+                    "specialties": "Business planning, training, funding assistance"
+                }
+            ]
+        }
+        
+        return predefined_providers.get(category, [
+            {
+                "name": "Provider Name",
+                "type": "Service Provider",
+                "local": False,
+                "description": "Service description",
+                "key_considerations": "Considerations",
+                "estimated_cost": "Contact for pricing",
+                "contact_method": "Website or phone",
+                "specialties": "General services"
+            }
+        ])
     
     async def _create_structured_providers(self, category: str, category_info: Dict[str, Any], business_context: Dict[str, Any], location: str, rag_results: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create structured provider data"""

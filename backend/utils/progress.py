@@ -18,9 +18,9 @@ def smart_trim_history(history_list, max_lines=150):
     return trimmed
 
 TOTALS_BY_PHASE = {
-    "KYC": 2,  # Reduced from 20 to 2 for testing
-    "BUSINESS_PLAN": 2,  # Reduced from 46 to 2 for testing
-    "PLAN_TO_ROADMAP_TRANSITION": 2,  # Reduced from 46 to 2 for testing
+    "KYC": 20,  # Restored to full 20 questions
+    "BUSINESS_PLAN": 46,  # Restored to full 46 questions
+    "PLAN_TO_ROADMAP_TRANSITION": 1,  # Restored to normal flow
     "ROADMAP": 1,
     "ROADMAP_GENERATED": 1,
     "ROADMAP_TO_IMPLEMENTATION_TRANSITION": 1,

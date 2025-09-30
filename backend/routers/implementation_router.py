@@ -112,6 +112,10 @@ async def get_motivational_quote(session_id: str, request: Request):
 # Global instance
 task_manager = ImplementationTaskManager()
 
+# Cache for implementation tasks to prevent repeated processing
+task_cache = {}
+CACHE_TTL = 300  # 5 minutes cache
+
 @router.get("/sessions/{session_id}/implementation/tasks")
 async def get_current_implementation_task(session_id: str, request: Request):
     """Get the current implementation task for a session"""
@@ -119,6 +123,14 @@ async def get_current_implementation_task(session_id: str, request: Request):
     user_id = request.state.user["id"]
     
     try:
+        # Check cache first to prevent repeated processing
+        cache_key = f"{session_id}_{user_id}"
+        if cache_key in task_cache:
+            cached_result = task_cache[cache_key]
+            if (datetime.now() - cached_result['timestamp']).seconds < CACHE_TTL:
+                print(f"📋 Using cached implementation task for session: {session_id}")
+                return cached_result['data']
+        
         # Get session data (you'll need to implement this based on your session service)
         session_data = {
             "business_name": "Your Business",
@@ -134,7 +146,7 @@ async def get_current_implementation_task(session_id: str, request: Request):
         task_result = await task_manager.get_next_implementation_task(session_data, completed_tasks)
         
         if task_result.get("status") == "completed":
-            return {
+            response_data = {
                 "success": True,
                 "message": "All implementation tasks completed",
                 "current_task": None,
@@ -145,29 +157,37 @@ async def get_current_implementation_task(session_id: str, request: Request):
                     "phases_completed": 5
                 }
             }
-        
-        return {
-            "success": True,
-            "message": "Current implementation task retrieved",
-            "current_task": {
-                "id": task_result["task_id"],
-                "title": task_result["task_details"].get("title", "Implementation Task"),
-                "description": task_result["task_details"].get("description", ""),
-                "purpose": task_result["task_details"].get("purpose", ""),
-                "options": task_result["task_details"].get("options", []),
-                "angel_actions": task_result["angel_actions"],
-                "estimated_time": task_result["estimated_time"],
-                "priority": task_result["priority"],
-                "phase_name": task_result["phase"],
-                "business_context": session_data
-            },
-            "progress": {
-                "completed": len(completed_tasks),
-                "total": 25,
-                "percent": int((len(completed_tasks) / 25) * 100),
-                "phases_completed": 0
+        else:
+            response_data = {
+                "success": True,
+                "message": "Current implementation task retrieved",
+                "current_task": {
+                    "id": task_result["task_id"],
+                    "title": task_result["task_details"].get("title", "Implementation Task"),
+                    "description": task_result["task_details"].get("description", ""),
+                    "purpose": task_result["task_details"].get("purpose", ""),
+                    "options": task_result["task_details"].get("options", []),
+                    "angel_actions": task_result["angel_actions"],
+                    "estimated_time": task_result["estimated_time"],
+                    "priority": task_result["priority"],
+                    "phase_name": task_result["phase"],
+                    "business_context": session_data
+                },
+                "progress": {
+                    "completed": len(completed_tasks),
+                    "total": 25,
+                    "percent": int((len(completed_tasks) / 25) * 100),
+                    "phases_completed": 0
+                }
             }
+        
+        # Cache the response
+        task_cache[cache_key] = {
+            'data': response_data,
+            'timestamp': datetime.now()
         }
+        
+        return response_data
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get implementation task: {str(e)}")
