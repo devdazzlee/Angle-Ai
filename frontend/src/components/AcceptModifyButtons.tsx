@@ -1,3 +1,4 @@
+// update
 interface AcceptModifyButtonsProps {
   onAccept: () => void;
   onModify: (currentText: string) => void;
