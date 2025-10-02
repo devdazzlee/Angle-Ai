@@ -5,11 +5,13 @@ import { toast } from 'react-toastify';
 interface ConversationPair {
   question: string;
   answer: string;
+  questionNumber?: number;
 }
 
 export default function KycForm() {
   const [history, setHistory] = useState<ConversationPair[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState('');
+  const [currentQuestionNumber, setCurrentQuestionNumber] = useState<number | null>(null);
   const [currentInput, setCurrentInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
@@ -25,6 +27,29 @@ export default function KycForm() {
       .trim();
   };
 
+  // 🔢 Helper to extract question number from AI response
+  const extractQuestionNumber = (text: string): number | null => {
+    // Look for patterns like [[Q:KYC.01]] or Question 1 of 20
+    const tagMatch = text.match(/\[\[Q:KYC\.(\d+)\]\]/);
+    if (tagMatch) {
+      return parseInt(tagMatch[1], 10);
+    }
+    
+    const questionMatch = text.match(/Question (\d+) of \d+/i);
+    if (questionMatch) {
+      return parseInt(questionMatch[1], 10);
+    }
+    
+    return null;
+  };
+
+  // 🔢 Helper to determine question number based on conversation history
+  const getQuestionNumberFromHistory = (): number => {
+    // If we have history, the next question number is history.length + 1
+    // If no history, it's question 1
+    return history.length + 1;
+  };
+
   useEffect(() => {
     async function getFirstQuestion() {
       setLoading(true);
@@ -38,10 +63,12 @@ export default function KycForm() {
         
 
         const firstQ = cleanQuestionText(angelReply);
+        const questionNumber = extractQuestionNumber(angelReply) || 1; // First question is always 1
 
         // Set no history yet — intro message removed
         setHistory([]);
         setCurrentQuestion(firstQ);
+        setCurrentQuestionNumber(questionNumber);
       } catch (error) {
         // All error handling is now centralized in httpClient
       } finally {
@@ -64,7 +91,7 @@ export default function KycForm() {
 
     setHistory(prev => [
       ...prev,
-      { question: currentQuestion, answer: input }
+      { question: currentQuestion, answer: input, questionNumber: currentQuestionNumber }
     ]);
 
     try {
@@ -75,6 +102,7 @@ export default function KycForm() {
       });
 
       const nextQuestion = cleanQuestionText(angelReply);
+      const nextQuestionNumber = extractQuestionNumber(angelReply) || (history.length + 2); // +2 because we just added current question to history
 
       // Trust backend for progress
       if (!skipStep && typeof progress === 'number') {
@@ -82,6 +110,7 @@ export default function KycForm() {
       }
 
       setCurrentQuestion(nextQuestion);
+      setCurrentQuestionNumber(nextQuestionNumber);
     } catch (error) {
       // Roll back if error
       setHistory(prev => prev.slice(0, -1));
@@ -150,6 +179,11 @@ export default function KycForm() {
                       </svg>
                     </div>
                     <div className="flex-1">
+                      <div className="mb-2">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          Question {pair.questionNumber || (idx + 1)}
+                        </span>
+                      </div>
                       <p className="text-gray-900 font-medium leading-relaxed whitespace-pre-wrap">
                         {pair.question.replace(/Question \d+ of \d+:\s*.*?–\s*/i, '').trim()}
                       </p>
@@ -189,6 +223,13 @@ export default function KycForm() {
                     )}
                   </div>
                   <div className="flex-1">
+                    {!loading && (
+                      <div className="mb-2">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          Question {currentQuestionNumber || (history.length + 1)}
+                        </span>
+                      </div>
+                    )}
                     <p className="text-gray-900 font-medium leading-relaxed whitespace-pre-wrap">
                       {loading ? 'Angel is thinking…' : currentQuestion || 'Loading question...'}
                     </p>

@@ -76,69 +76,7 @@ const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
       </div>
 
       {/* Sections by Phase */}
-      <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
-        {Object.entries(questionsByPhase).map(([phase, phaseQuestions]) => {
-          const isCurrentPhase = phase === currentPhase;
-          const completedInPhase = phaseQuestions.filter(q => q.completed).length;
-          const phaseProgress = (completedInPhase / phaseQuestions.length) * 100;
-
-          return (
-            <div 
-              key={phase}
-              className={`border-b border-gray-100 ${isCurrentPhase ? phaseColors[phase as keyof typeof phaseColors] : ''}`}
-            >
-              {/* Phase Header */}
-              <div className="p-4">
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-medium text-gray-800">
-                    {phaseNames[phase as keyof typeof phaseNames]}
-                  </h4>
-                  <span className="text-sm text-gray-600">
-                    {completedInPhase}/{phaseQuestions.length}
-                  </span>
-                </div>
-
-                {/* Phase Progress Bar */}
-                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-teal-500 rounded-full transition-all duration-300"
-                    style={{ width: `${phaseProgress}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Questions List */}
-              {isCurrentPhase && (
-                <div className="bg-white/50 p-2">
-                  {phaseQuestions.map((question) => (
-                    <button
-                      key={question.id}
-                      onClick={() => onQuestionSelect(question.id)}
-                      className={`w-full text-left p-2 rounded-lg text-sm mb-1 transition-colors
-                        ${question.completed 
-                          ? 'text-gray-600 hover:bg-gray-50' 
-                          : 'text-gray-800 hover:bg-gray-50'}`}
-                    >
-                      <div className="flex items-center">
-                        <div className={`w-5 h-5 rounded-full mr-3 flex items-center justify-center text-xs
-                          ${question.completed 
-                            ? 'bg-teal-100 text-teal-600' 
-                            : 'bg-gray-100 text-gray-600'}`}
-                        >
-                          {question.completed ? '✓' : question.number}
-                        </div>
-                        <span className={question.completed ? 'line-through opacity-70' : ''}>
-                          Question {question.number}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      
 
       {/* File Upload Section */}
       <div className="p-4 border-t border-gray-100">

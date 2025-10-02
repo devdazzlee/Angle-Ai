@@ -108,8 +108,44 @@ def format_response_structure(reply):
     
     formatted_reply = reply
     
-    # Specific formatting for work situation question
-    if "work situation" in formatted_reply.lower() and "?" in formatted_reply:
+    # Check if this should be a dropdown question (Yes/No or multiple choice)
+    is_yes_no_question = ("yes" in formatted_reply.lower() and "no" in formatted_reply.lower() and 
+                         any(phrase in formatted_reply.lower() for phrase in ["have you", "do you", "are you", "would you"]))
+    
+    is_work_situation_question = "work situation" in formatted_reply.lower()
+    
+    is_multiple_choice_question = ("•" in formatted_reply or 
+                                  any(option in formatted_reply.lower() for option in ["full-time employed", "part-time", "student", "unemployed"]))
+    
+    # For dropdown questions, remove the options from the message
+    if is_yes_no_question:
+        # Remove Yes/No options
+        formatted_reply = re.sub(r'\n\n• Yes\n• No', '', formatted_reply)
+        formatted_reply = re.sub(r'\n• Yes\n• No', '', formatted_reply)
+        formatted_reply = re.sub(r'\n\nYes / No', '', formatted_reply)
+        formatted_reply = re.sub(r'\nYes / No', '', formatted_reply)
+    
+    elif is_work_situation_question:
+        # Remove work situation options
+        work_options_pattern = r'\n\n• Full-time employed\n• Part-time\n• Student\n• Unemployed\n• Self-employed/freelancer\n• Other'
+        formatted_reply = re.sub(work_options_pattern, '', formatted_reply)
+        
+        # Also handle single-line format
+        work_options_single_pattern = r'\n• Full-time employed\n• Part-time\n• Student\n• Unemployed\n• Self-employed/freelancer\n• Other'
+        formatted_reply = re.sub(work_options_single_pattern, '', formatted_reply)
+    
+    elif is_multiple_choice_question and not is_yes_no_question:
+        # Remove bullet point options for other multiple choice questions
+        # Pattern: "Question?\n\n• Option1\n• Option2\n• Option3"
+        multi_choice_pattern = r'([^?]+\?)\s*\n\n(• [^\n]+(?:\n• [^\n]+)*)'
+        formatted_reply = re.sub(multi_choice_pattern, r'\1', formatted_reply)
+        
+        # Also handle single-line format
+        multi_choice_single_pattern = r'([^?]+\?)\s*\n(• [^\n]+(?:\n• [^\n]+)*)'
+        formatted_reply = re.sub(multi_choice_single_pattern, r'\1', formatted_reply)
+    
+    # Specific formatting for work situation question (if not already handled)
+    if "work situation" in formatted_reply.lower() and "?" in formatted_reply and not is_work_situation_question:
         # Pattern: "What's your current work situation? Full-time employed Part-time Student Unemployed Self-employed/freelancer Other"
         work_pattern = r'([^?]+\?)\s+(Full-time employed\s+Part-time\s+Student\s+Unemployed\s+Self-employed/freelancer\s+Other)'
         formatted_reply = re.sub(work_pattern, 
@@ -122,17 +158,19 @@ def format_response_structure(reply):
         business_pattern = r'([^?]+\?)\s+(Yes\s*/\s*No)'
         formatted_reply = re.sub(business_pattern, r'\1\n\n• Yes\n• No', formatted_reply)
     
-    # General pattern for Yes/No questions
-    # Pattern: "Question? Yes / No" or "Question? Yes/No"
-    yes_no_pattern = r'([^?]+\?)\s+(Yes\s*/\s*No)'
-    formatted_reply = re.sub(yes_no_pattern, r'\1\n\n• Yes\n• No', formatted_reply)
+    # General pattern for Yes/No questions (if not already handled)
+    if not is_yes_no_question:
+        # Pattern: "Question? Yes / No" or "Question? Yes/No"
+        yes_no_pattern = r'([^?]+\?)\s+(Yes\s*/\s*No)'
+        formatted_reply = re.sub(yes_no_pattern, r'\1\n\n• Yes\n• No', formatted_reply)
     
-    # General pattern for multiple choice questions
-    # Pattern: "Question? Option1 Option2 Option3 Option4"
-    multi_choice_pattern = r'([^?]+\?)\s+([A-Za-z\s]+(?:employed|time|Student|Unemployed|freelancer|Other)[^?]*)'
-    formatted_reply = re.sub(multi_choice_pattern, 
-        lambda m: f"{m.group(1)}\n\n• {m.group(2).replace(' ', ' • ')}", 
-        formatted_reply)
+    # General pattern for multiple choice questions (if not already handled)
+    if not is_multiple_choice_question:
+        # Pattern: "Question? Option1 Option2 Option3 Option4"
+        multi_choice_pattern = r'([^?]+\?)\s+([A-Za-z\s]+(?:employed|time|Student|Unemployed|freelancer|Other)[^?]*)'
+        formatted_reply = re.sub(multi_choice_pattern, 
+            lambda m: f"{m.group(1)}\n\n• {m.group(2).replace(' ', ' • ')}", 
+            formatted_reply)
     
     # Clean up any double bullet points
     formatted_reply = re.sub(r'•\s*•\s*', '• ', formatted_reply)
@@ -286,7 +324,25 @@ def suggest_draft_if_relevant(reply, session_data, user_input, history):
                     user_has_relevant_info = True
                     break
         
-        if user_has_relevant_info and "💡 Quick Tip:" not in reply and "💡 **Quick Tip**:" not in reply and "💡 **Pro Tip**:" not in reply:
+        # Check for various tip patterns that might already exist
+        tip_patterns = [
+            "💡 Quick Tip:",
+            "💡 **Quick Tip**:",
+            "💡 **Pro Tip**:",
+            "💡 Quick tip:",
+            "💡 **Quick tip**:",
+            "💡 **Pro tip**:",
+            "Quick Tip:",
+            "**Quick Tip**:",
+            "**Pro Tip**:",
+            "Quick tip:",
+            "**Quick tip**:",
+            "**Pro tip**:"
+        ]
+        
+        has_existing_tip = any(pattern in reply for pattern in tip_patterns)
+        
+        if user_has_relevant_info and not has_existing_tip:
             # Add suggestion to use Draft
             draft_suggestion = f"\n\n💡 **Quick Tip**: Based on some info you've previously entered, you can also select **\"Draft\"** and I'll use that information to create a draft answer for you to review and save you some time."
             reply += draft_suggestion
@@ -445,7 +501,25 @@ def add_proactive_support_guidance(reply, session_data, history):
     """Add proactive support guidance based on identified areas needing help"""
     
     # Only add support guidance if not already present in the reply
-    if "💡 Quick Tip:" in reply or "💡 **Quick Tip**:" in reply or "💡 **Pro Tip**:" in reply or "🎯 Areas Where You May Need Additional Support:" in reply:
+    tip_patterns = [
+        "💡 Quick Tip:",
+        "💡 **Quick Tip**:",
+        "💡 **Pro Tip**:",
+        "💡 Quick tip:",
+        "💡 **Quick tip**:",
+        "💡 **Pro tip**:",
+        "Quick Tip:",
+        "**Quick Tip**:",
+        "**Pro Tip**:",
+        "Quick tip:",
+        "**Quick tip**:",
+        "**Pro tip**:",
+        "🎯 Areas Where You May Need Additional Support:"
+    ]
+    
+    has_existing_guidance = any(pattern in reply for pattern in tip_patterns)
+    
+    if has_existing_guidance:
         return reply
     
     support_areas = identify_support_areas(session_data, history)
@@ -525,19 +599,31 @@ def inject_missing_tag(reply, session_data=None):
 async def handle_kyc_completion(session_data, history):
     """Handle the transition from KYC completion to Business Plan phase"""
     
-    # Create the transition message
-    transition_message = f"""🎉 **KYC Phase Complete!** 🎉
+    # First, acknowledge the last question with a normal response
+    acknowledgment = """That's fantastic! Your proactive approach will help ensure we make the most of our time together and that you get the guidance you need when you need it.
 
-Great job completing the Know Your Customer phase! You've provided valuable insights about yourself and your entrepreneurial journey.
+🎉 **Congratulations! You've completed your entrepreneurial profile!** 🎉
 
-**"The way to get started is to quit talking and begin doing."** – Walt Disney
+Here's what I've learned about you and your goals:
 
-Now let's dive into your business planning! This is where we'll transform your ideas into a comprehensive business strategy.
+• You're ready to take a proactive approach to building your business
+• You've shared valuable insights about your experience, goals, and preferences
+• You're prepared to dive deep into the business planning process
 
-Ready to start building your business plan?"""
+Now we're moving into the exciting Business Planning phase! This is where we'll dive deep into every aspect of your business idea. I'll be asking detailed questions about your product, market, finances, and strategy.
+
+During this phase, I'll be conducting research in the background to provide you with industry insights, competitive analysis, and market data to enrich your business plan. Don't worry - this happens automatically and securely.
+
+As we go through each question, I'll provide both supportive encouragement and constructive coaching to help you think through each aspect thoroughly. Remember, this comprehensive approach ensures your final business plan is detailed and provides you with a strong starting point of information that will help you launch your business. The more detailed answers you provide, the better I can help support you to bring your business to life.
+
+Let's build the business of your dreams together!
+
+*'The way to get started is to quit talking and begin doing.' - Walt Disney*
+
+Ready to dive into your business planning?"""
     
     return {
-        "reply": transition_message,
+        "reply": acknowledgment,
         "transition_phase": "KYC_TO_BUSINESS_PLAN",
         "patch_session": {
             "current_phase": "BUSINESS_PLAN",
@@ -659,8 +745,18 @@ async def get_angel_reply(user_msg, history, session_data=None):
     import time
     start_time = time.time()
     
+    # Get user name from session data, fallback to generic greeting
+    user_name = session_data.get("user_name", "there") if session_data else "there"
+    
+    # Check if we need to trigger KYC completion (after acknowledgment has been shown)
+    if (session_data and 
+        session_data.get("current_phase") == "KYC" and 
+        session_data.get("asked_q", "").endswith("_ACK")):
+        print(f"🎯 KYC completion triggered - showing completion message")
+        return await handle_kyc_completion(session_data, history)
+    
     # Define formatting instruction at the top to avoid UnboundLocalError
-    FORMATTING_INSTRUCTION = """
+    FORMATTING_INSTRUCTION = f"""
 CRITICAL FORMATTING RULES - FOLLOW EXACTLY:
 
 1. ALWAYS start with a brief acknowledgment (1-2 sentences max)
@@ -668,14 +764,14 @@ CRITICAL FORMATTING RULES - FOLLOW EXACTLY:
 3. Present the question in a clear, structured format:
 
 For YES/NO questions:
-"That's great, Ahmed!
+"That's great, {user_name}!
 
 Have you started a business before?
 • Yes
 • No"
 
 For multiple choice questions:
-"That's perfect, Ahmed!
+"That's perfect, {user_name}!
 
 What's your current work situation?
 • Full-time employed
@@ -686,14 +782,14 @@ What's your current work situation?
 • Other"
 
 For rating questions:
-"That's helpful, Ahmed!
+"That's helpful, {user_name}!
 
 How comfortable are you with business planning?
 ○ ○ ○ ○ ○
 1  2  3  4  5"
 
 For verification steps:
-"That's excellent, Ahmed!
+"That's excellent, {user_name}!
 
 Here's what I've captured so far:
 [Summary of information]
@@ -786,16 +882,7 @@ Do NOT include question numbers, progress percentages, or step counts in your re
     user_content = user_msg["content"].strip()
     print(f"🚀 Starting Angel reply generation for: {user_content[:50]}...")
     
-    # Check if KYC phase is complete (question 20 for full flow)
-    if session_data and session_data.get("current_phase") == "KYC":
-        current_tag = session_data.get("asked_q", "")
-        if current_tag and current_tag.startswith("KYC."):
-            try:
-                question_num = int(current_tag.split(".")[1])
-                if question_num >= 20:  # KYC complete (restored to full 20 questions)
-                    return await handle_kyc_completion(session_data, history)
-            except (ValueError, IndexError):
-                pass
+    # KYC completion check moved to AFTER AI response generation
     
     # Check if Business Plan phase is complete (question 46 for full flow)
     if session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
@@ -1043,6 +1130,34 @@ Here's what I've captured so far: [summary]. Does this look accurate to you? If 
     end_time = time.time()
     response_time = end_time - start_time
     print(f"⏱️ Angel reply generated in {response_time:.2f} seconds")
+    
+    # Check if we need to trigger KYC completion after acknowledgment
+    if session_data and session_data.get("current_phase") == "KYC":
+        current_tag = session_data.get("asked_q", "")
+        if current_tag and current_tag.startswith("KYC."):
+            try:
+                question_num = int(current_tag.split(".")[1])
+                # Check if this is an acknowledgment of the final question (19)
+                # and we haven't already triggered completion
+                if (question_num == 19 and 
+                    not current_tag.endswith("_ACK") and
+                    ("proactive" in reply_content.lower() or 
+                     "excellent" in reply_content.lower() or
+                     "fantastic" in reply_content.lower() or
+                     "congratulations" in reply_content.lower())):
+                    
+                    print(f"🎯 KYC acknowledgment detected for question {question_num}")
+                    # Mark that we've shown the acknowledgment using asked_q
+                    return {
+                        "reply": reply_content,
+                        "web_search_status": web_search_status,
+                        "immediate_response": immediate_response,
+                        "patch_session": {
+                            "asked_q": current_tag + "_ACK"
+                        }
+                    }
+            except (ValueError, IndexError):
+                pass
     
     return {
         "reply": reply_content,

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import SkillRatingForm from './SkillRatingForm';
+import QuestionDropdown from './QuestionDropdown';
 
 interface SmartInputProps {
   value: string;
@@ -21,15 +22,102 @@ const SmartInput: React.FC<SmartInputProps> = ({
   currentQuestion = ""
 }) => {
   const [showRatingForm, setShowRatingForm] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [dropdownOptions, setDropdownOptions] = useState<string[]>([]);
+  const [dropdownType, setDropdownType] = useState<'yesno' | 'multiple' | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Check if current question is about skill ratings
+  // Detect question type and extract options
   useEffect(() => {
-    const isSkillRatingQuestion = currentQuestion.includes('comfort') && 
-                                 currentQuestion.includes('business skills') &&
-                                 currentQuestion.includes('Rate each skill');
-    setShowRatingForm(isSkillRatingQuestion);
+    const question = currentQuestion.toLowerCase();
+    
+    // Check for skill rating question
+    const isSkillRatingQuestion = question.includes('comfort') && 
+                                 question.includes('business skills') &&
+                                 question.includes('rate each skill');
+    
+    if (isSkillRatingQuestion) {
+      setShowRatingForm(true);
+      setShowDropdown(false);
+      return;
+    }
+
+    // Check for Yes/No questions
+    const isYesNoQuestion = question.includes('yes') && question.includes('no') && 
+                           (question.includes('have you') || question.includes('do you') || 
+                            question.includes('are you') || question.includes('would you'));
+    
+    if (isYesNoQuestion) {
+      setShowDropdown(true);
+      setDropdownType('yesno');
+      setDropdownOptions(['Yes', 'No']);
+      setShowRatingForm(false);
+      return;
+    }
+
+    // Check for multiple choice questions based on specific patterns
+    const multipleChoiceQuestions = {
+      'what is your preferred communication style': ['Conversational', 'Structured'],
+      'what\'s your current work situation': ['Full-time employed', 'Part-time', 'Student', 'Unemployed', 'Self-employed/freelancer', 'Other'],
+      'what kind of business are you trying to build': ['Side hustle', 'Small business', 'Scalable startup', 'Nonprofit/social venture', 'Other'],
+      'do you have any initial funding available': ['None', 'Personal savings', 'Friends/family', 'External funding (loan, investor)', 'Other'],
+      'are you planning to seek outside funding in the future': ['Yes', 'No', 'Unsure'],
+      'would you like angel to:': ['Be more hands-on (do more tasks for you)', 'Be more of a mentor (guide but let you take the lead)', 'Alternate based on the task'],
+      'do you want to connect with service providers': ['Yes', 'No', 'Later'],
+      'what type of business structure are you considering': ['LLC', 'Sole proprietorship', 'Corporation', 'Partnership', 'Unsure'],
+      'how do you plan to generate revenue': ['Direct sales', 'Subscriptions', 'Advertising', 'Licensing', 'Services', 'Other/Multiple'],
+      'will your business be primarily:': ['Online only', 'Physical location only', 'Both online and physical', 'Unsure'],
+      'would you like me to be proactive in suggesting next steps and improvements throughout our process': ['Yes, please be proactive', 'Only when I ask', 'Let me decide each time']
+    };
+
+    // Check if current question matches any multiple choice pattern
+    for (const [pattern, options] of Object.entries(multipleChoiceQuestions)) {
+      if (question.includes(pattern)) {
+        setShowDropdown(true);
+        setDropdownType('multiple');
+        setDropdownOptions(options);
+        setShowRatingForm(false);
+        return;
+      }
+    }
+
+    // Check for other multiple choice patterns with bullet points
+    const hasMultipleOptions = question.includes('•') || question.includes('full-time') || question.includes('part-time');
+    if (hasMultipleOptions && !isYesNoQuestion) {
+      // Extract options from the question text
+      const options = extractOptionsFromQuestion(currentQuestion);
+      if (options.length > 2) {
+        setShowDropdown(true);
+        setDropdownType('multiple');
+        setDropdownOptions(options);
+        setShowRatingForm(false);
+        return;
+      }
+    }
+
+    // Default to text input
+    setShowRatingForm(false);
+    setShowDropdown(false);
+    setDropdownType(null);
   }, [currentQuestion]);
+
+  // Extract options from question text
+  const extractOptionsFromQuestion = (question: string): string[] => {
+    const lines = question.split('\n');
+    const options: string[] = [];
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('•') || trimmed.startsWith('-')) {
+        const option = trimmed.substring(1).trim();
+        if (option && !option.includes('?')) {
+          options.push(option);
+        }
+      }
+    }
+    
+    return options;
+  };
 
   const handleRatingSubmit = (ratings: number[]) => {
     const ratingString = ratings.join(', ');
@@ -40,6 +128,11 @@ const SmartInput: React.FC<SmartInputProps> = ({
 
   const handleRatingCancel = () => {
     setShowRatingForm(false);
+  };
+
+  const handleDropdownSubmit = (selectedValue: string) => {
+    onChange(selectedValue);
+    onSubmit(selectedValue);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -66,6 +159,17 @@ const SmartInput: React.FC<SmartInputProps> = ({
           onCancel={handleRatingCancel}
         />
       </div>
+    );
+  }
+
+  if (showDropdown && dropdownOptions.length > 0) {
+    return (
+      <QuestionDropdown
+        options={dropdownOptions}
+        onSubmit={handleDropdownSubmit}
+        placeholder={`Select ${dropdownType === 'yesno' ? 'Yes or No' : 'an option'}...`}
+        disabled={disabled}
+      />
     );
   }
 

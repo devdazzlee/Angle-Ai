@@ -28,6 +28,7 @@ import RoadmapEditModal from "../../components/RoadmapEditModal";
 interface ConversationPair {
   question: string;
   answer: string;
+  questionNumber?: number;
 }
 
 interface ProgressState {
@@ -40,7 +41,7 @@ interface ProgressState {
 // Updated to include PLAN_TO_ROADMAP_TRANSITION phase
 
 const QUESTION_COUNTS = {
-  KYC: 2,  // Reduced from 20 to 2 for testing
+  KYC: 19,  // Now 19 questions (removed privacy question)
   BUSINESS_PLAN: 2,  // Reduced from 46 to 2 for testing
   ROADMAP: 1,
   IMPLEMENTATION: 10,
@@ -94,13 +95,14 @@ export default function ChatPage() {
 
   const [history, setHistory] = useState<ConversationPair[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState("");
+  const [currentQuestionNumber, setCurrentQuestionNumber] = useState<number | null>(null);
   const [currentInput, setCurrentInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [progress, setProgress] = useState<ProgressState>({
     phase: "KYC",
     answered: 0,
-    total: 20,
+    total: 19,
     percent: 0,
   });
 
@@ -145,6 +147,10 @@ export default function ChatPage() {
   const [transitionData, setTransitionData] = useState<{
     businessPlanSummary: string;
     transitionPhase: string;
+  } | null>(null);
+  const [kycToBusinessTransition, setKycToBusinessTransition] = useState<{
+    kycSummary: string;
+    isActive: boolean;
   } | null>(null);
   const [modifyModal, setModifyModal] = useState<{
     isOpen: boolean;
@@ -276,6 +282,34 @@ export default function ChatPage() {
     }
   };
 
+  // Handle KYC to Business Plan transition
+  const handleStartBusinessPlanning = async () => {
+    try {
+      setLoading(true);
+      toast.info("Starting business planning phase...");
+      
+      // Clear transition and proceed to business planning
+      setKycToBusinessTransition(null);
+      
+      // Fetch the first business plan question
+      const {
+        result: { reply, progress, web_search_status, immediate_response },
+      } = await fetchQuestion("", sessionId!);
+      
+      const formatted = formatAngelMessage(reply);
+      setCurrentQuestion(formatted);
+      setProgress(progress);
+      setWebSearchStatus(web_search_status || { is_searching: false, query: undefined, completed: false });
+      
+      toast.success("Welcome to the Business Planning phase!");
+    } catch (error) {
+      console.error("Error starting business planning:", error);
+      toast.error("Failed to start business planning");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Handle actual implementation start (from transition screen)
   const handleActualStartImplementation = async () => {
     try {
@@ -323,6 +357,109 @@ export default function ChatPage() {
   //   return text.replace(/\[\[Q:[A-Z_]+\.\d{2}]]\s*/g, "").trim();
   // };
 
+  // 🔢 Helper to extract question number from AI response
+  const extractQuestionNumber = (text: string): number | null => {
+    // Check if this is an introduction message (not a question)
+    const isIntroduction = text.toLowerCase().includes('welcome to founderport') || 
+                          text.toLowerCase().includes('congratulations on taking your first step') ||
+                          text.toLowerCase().includes('angel\'s mission is simple') ||
+                          text.toLowerCase().includes('phase 1 - know your customer') ||
+                          text.toLowerCase().includes('phase 2 - business planning') ||
+                          text.toLowerCase().includes('phase 3 - roadmap') ||
+                          text.toLowerCase().includes('phase 4: implementation') ||
+                          text.toLowerCase().includes('your journey starts now') ||
+                          text.toLowerCase().includes('every great business begins') ||
+                          text.toLowerCase().includes('are you ready to begin your journey') ||
+                          text.toLowerCase().includes('let\'s start with the getting to know you questionnaire') ||
+                          // Check if it's the introduction with the first question embedded
+                          (text.toLowerCase().includes('welcome to founderport') && text.toLowerCase().includes('what\'s your name and preferred name'));
+    
+    if (isIntroduction) {
+      return null; // Don't show question number for introductions
+    }
+    
+    // Look for patterns like [[Q:KYC.01]] or Question 1 of 20
+    const tagMatch = text.match(/\[\[Q:[A-Z_]+\.(\d+)\]\]/);
+    if (tagMatch) {
+      return parseInt(tagMatch[1], 10);
+    }
+    
+    const questionMatch = text.match(/Question (\d+) of \d+/i);
+    if (questionMatch) {
+      return parseInt(questionMatch[1], 10);
+    }
+    
+    // If no tag found but this is a KYC question, try to determine the number from context
+    if (progress.phase === "KYC" && text.includes("?")) {
+      // Check for specific KYC questions and assign numbers
+      if (text.toLowerCase().includes("what is your preferred communication style")) {
+        return 2; // This is KYC.02
+      }
+      if (text.toLowerCase().includes("have you started a business before")) {
+        return 3; // This is KYC.03
+      }
+      if (text.toLowerCase().includes("what's your current work situation")) {
+        return 4; // This is KYC.04
+      }
+      if (text.toLowerCase().includes("do you already have a business idea")) {
+        return 5; // This is KYC.05
+      }
+      if (text.toLowerCase().includes("have you shared any of your previous ideas or concepts with others")) {
+        return 6; // This is KYC.06
+      }
+      if (text.toLowerCase().includes("how comfortable are you with these business skills")) {
+        return 7; // This is KYC.07
+      }
+      if (text.toLowerCase().includes("what kind of business are you trying to build")) {
+        return 8; // This is KYC.08
+      }
+      if (text.toLowerCase().includes("what motivates you to start this business")) {
+        return 9; // This is KYC.09
+      }
+      if (text.toLowerCase().includes("where will your business operate")) {
+        return 10; // This is KYC.10
+      }
+      if (text.toLowerCase().includes("what industry does your business fall into")) {
+        return 11; // This is KYC.11
+      }
+      if (text.toLowerCase().includes("do you have any initial funding available")) {
+        return 12; // This is KYC.12
+      }
+      if (text.toLowerCase().includes("are you planning to seek outside funding in the future")) {
+        return 13; // This is KYC.13
+      }
+      if (text.toLowerCase().includes("would you like angel to:")) {
+        return 14; // This is KYC.14
+      }
+      if (text.toLowerCase().includes("do you want to connect with service providers")) {
+        return 15; // This is KYC.15
+      }
+      if (text.toLowerCase().includes("what type of business structure are you considering")) {
+        return 16; // This is KYC.16
+      }
+      if (text.toLowerCase().includes("how do you plan to generate revenue")) {
+        return 17; // This is KYC.17
+      }
+      if (text.toLowerCase().includes("will your business be primarily:")) {
+        return 18; // This is KYC.18
+      }
+      if (text.toLowerCase().includes("would you like me to be proactive in suggesting next steps and improvements throughout our process")) {
+        return 19; // This is KYC.19 (was KYC.20)
+      }
+      // Add fallback for questions that might not have tags
+      if (progress.phase === "KYC" && text.includes("?") && !text.toLowerCase().includes('welcome to founderport')) {
+        // Try to determine question number from context or history
+        const historyLength = history.length;
+        if (historyLength >= 0 && historyLength < 19) {
+          return historyLength + 2; // Start from question 2 (since question 1 is the introduction)
+        }
+      }
+      // Add more specific question patterns as needed
+    }
+    
+    return null;
+  };
+
   const formatAngelMessage = (text: string | any): string => {
     // Ensure we have a string to work with
     if (typeof text !== 'string') {
@@ -359,6 +496,381 @@ export default function ChatPage() {
     return formatted.trim();
   };
 
+  // Format questions with bold styling and spacing
+  const formatQuestionText = (text: string): string => {
+    if (typeof text !== 'string') {
+      return String(text || '');
+    }
+
+    // Remove machine tags
+    let formatted = text.replace(/\[\[Q:[A-Z_]+\.\d{2}]]\s*/g, "");
+
+    // Remove ALL asterisks (single, double, triple, etc.)
+    formatted = formatted.replace(/\*+/g, "");
+
+    // Remove ALL hashes
+    formatted = formatted.replace(/#+/g, "");
+
+    // Remove ALL dashes and similar symbols at start of lines or standalone
+    formatted = formatted.replace(/^[-–—•]+\s*/gm, "");
+    formatted = formatted.replace(/[-–—]{2,}/g, "");
+
+    // Clean up bullet points - replace with simple dash
+    formatted = formatted.replace(/^[•\-–—*]\s+/gm, "- ");
+
+    // Clean up numbered lists - keep simple format
+    formatted = formatted.replace(/^(\d+)\.\s+/gm, "$1. ");
+
+    // Remove any remaining standalone formatting symbols
+    formatted = formatted.replace(/^[*#\-–—•]+\s*$/gm, "");
+
+    // Clean up excessive whitespace
+    formatted = formatted.replace(/\n{3,}/g, "\n\n");
+    formatted = formatted.replace(/\s{3,}/g, " ");
+
+    // Remove rating options and instructions for skills question
+    if (formatted.toLowerCase().includes('how comfortable are you with these business skills')) {
+      // Remove the rating instructions and options
+      formatted = formatted.replace(/Rate each skill from 1 to 5.*?5 = Very comfortable/gs, '');
+      formatted = formatted.replace(/\*\*📋 Business Planning\*\*.*?🔘 ○ ○ ○ ○/gs, '');
+      formatted = formatted.replace(/\*\*💰 Financial Modeling\*\*.*?🔘 ○ ○ ○ ○/gs, '');
+      formatted = formatted.replace(/\*\*⚖️ Legal Formation\*\*.*?🔘 ○ ○ ○ ○/gs, '');
+      formatted = formatted.replace(/\*\*📢 Marketing\*\*.*?🔘 ○ ○ ○ ○/gs, '');
+      formatted = formatted.replace(/\*\*🚚 Operations\/Logistics\*\*.*?🔘 ○ ○ ○ ○/gs, '');
+      formatted = formatted.replace(/\*\*💻 Technology\/Infrastructure\*\*.*?🔘 ○ ○ ○ ○/gs, '');
+      formatted = formatted.replace(/\*\*💼 Fundraising\/Investor Outreach\*\*.*?🔘 ○ ○ ○ ○/gs, '');
+      formatted = formatted.replace(/\*\*Super Easy Response:\*\*.*?\(One number for each skill in order\)/gs, '');
+      formatted = formatted.replace(/\*\*What the numbers mean:\*\*.*?5 = Very comfortable/gs, '');
+      formatted = formatted.replace(/1\s+2\s+3\s+4\s+5/g, '');
+      formatted = formatted.replace(/🔘\s*○\s*○\s*○\s*○/g, '');
+      
+      // Remove additional patterns that might appear
+      formatted = formatted.replace(/📋 Business Planning\s*/g, '');
+      formatted = formatted.replace(/💰 Financial Modeling\s*/g, '');
+      formatted = formatted.replace(/⚖️ Legal Formation\s*/g, '');
+      formatted = formatted.replace(/📢 Marketing\s*/g, '');
+      formatted = formatted.replace(/🚚 Operations\/Logistics\s*/g, '');
+      formatted = formatted.replace(/💻 Technology\/Infrastructure\s*/g, '');
+      formatted = formatted.replace(/💼 Fundraising\/Investor Outreach\s*/g, '');
+      formatted = formatted.replace(/Super Easy Response:\s*Just type:.*?\n/g, '');
+      formatted = formatted.replace(/If yes: Can you describe it briefly\?/g, '');
+    }
+
+    // Find and format questions (sentences ending with ?)
+    // Look for question patterns in the text
+    const questionPatterns = [
+      // KYC Questions
+      /(What's your name and preferred name or nickname\?)/gi,
+      /(What is your preferred communication style\?)/gi,
+      /(Have you started a business before\?)/gi,
+      /(What's your current work situation\?)/gi,
+      /(Do you already have a business idea in mind\?)/gi,
+      /(Have you shared your business idea with anyone yet\?)/gi,
+      /(Have you shared any of your previous ideas or concepts with others\?)/gi,
+      /(How comfortable are you with these business skills\?)/gi,
+      /(What kind of business are you trying to build\?)/gi,
+      /(What motivates you to start this business\?)/gi,
+      /(Where will your business operate\?)/gi,
+      /(What industry does your business fall into\?)/gi,
+      /(What industry does your business fall into \(or closely resemble\)\?)/gi,
+      /(Do you have any initial funding available\?)/gi,
+      /(Are you planning to seek outside funding in the future\?)/gi,
+      /(Would you like Angel to:)/gi,
+      /(Do you want to connect with service providers\?)/gi,
+      /(Do you want to connect with service providers \(lawyers, designers, accountants, etc\.\) during this process\?)/gi,
+      /(What type of business structure are you considering\?)/gi,
+      /(How do you plan to generate revenue\?)/gi,
+      /(Will your business be primarily:)/gi,
+      /(Would you like me to be proactive in suggesting next steps and improvements throughout our process\?)/gi,
+      /(Have you shared your business idea with anyone yet \(friends, potential customers, advisors\)\?)/gi,
+      /(Have you shared any of your previous ideas or concepts with others \(friends, potential customers, advisors\)\?)/gi,
+      
+      // Business Plan Questions
+      /(What is your business name\?)/gi,
+      /(What is your business tagline or mission statement\?)/gi,
+      /(What problem does your business solve\?)/gi,
+      /(What makes your business unique\?)/gi,
+      /(Describe your core product or service in detail\?)/gi,
+      /(What are the key features and benefits of your product\/service\?)/gi,
+      /(Do you have any intellectual property \(patents, trademarks, copyrights\) or proprietary technology\?)/gi,
+      /(What is your product development timeline\?)/gi,
+      /(Who is your target market\?)/gi,
+      /(What is the size of your target market\?)/gi,
+      /(Who are your main competitors\?)/gi,
+      /(How is your target market currently solving this problem\?)/gi,
+      /(Where will your business be located\?)/gi,
+      /(What are your space and facility requirements\?)/gi,
+      /(What are your short-term operational needs\?)/gi,
+      /(What suppliers or vendors will you need\?)/gi,
+      /(What are your staffing needs\?)/gi,
+      /(How will you price your product\/service\?)/gi,
+      /(What are your projected sales for the first year\?)/gi,
+      /(What are your estimated startup costs\?)/gi,
+      /(What are your estimated monthly operating expenses\?)/gi,
+      /(When do you expect to break even\?)/gi,
+      /(How much funding do you need to get started\?)/gi,
+      /(What are your financial projections for years 1-3\?)/gi,
+      /(How will you track and manage your finances\?)/gi,
+      /(How will you reach your target customers\?)/gi,
+      /(What is your sales process\?)/gi,
+      /(What is your customer acquisition cost\?)/gi,
+      /(What is your customer lifetime value\?)/gi,
+      /(How will you build brand awareness and credibility in your market\?)/gi,
+      /(What partnerships or collaborations could help you reach more customers\?)/gi,
+      /(What business structure will you use \(LLC, Corporation, etc\.\)\?)/gi,
+      /(What licenses and permits do you need\?)/gi,
+      /(What insurance coverage do you need\?)/gi,
+      /(How will you protect your intellectual property\?)/gi,
+      /(What contracts and agreements will you need\?)/gi,
+      /(How will you handle taxes and compliance\?)/gi,
+      /(What data privacy and security measures will you implement\?)/gi,
+      /(What are the key milestones you hope to achieve in the first year of your business\?)/gi,
+      /(What additional products or services could you offer in the future\?)/gi,
+      /(How will you expand to new markets or customer segments\?)/gi,
+      /(What partnerships or strategic alliances could accelerate your growth\?)/gi,
+      /(What are the biggest risks and challenges your business might face\?)/gi,
+      /(What contingency plans do you have for major risks or setbacks\?)/gi,
+      /(What is your biggest concern or fear about launching this business\?)/gi,
+      /(What additional considerations or final thoughts do you have about your business plan\?)/gi
+    ];
+
+    // Apply question formatting
+    questionPatterns.forEach(pattern => {
+      formatted = formatted.replace(pattern, (match) => {
+        return `\n\n**${match}**\n\n`;
+      });
+    });
+
+    // Also check for any remaining sentences ending with ? that weren't caught by patterns
+    const lines = formatted.split('\n');
+    const formattedLines = lines.map(line => {
+      const trimmedLine = line.trim();
+      // Check if line ends with ? and is a standalone question (not part of a longer sentence)
+      if (trimmedLine.endsWith('?') && trimmedLine.length < 300 && !trimmedLine.includes('**')) {
+        return `\n\n**${trimmedLine}**\n\n`;
+      }
+      return line;
+    });
+
+    // Additional pass to catch any remaining questions in the text
+    let finalFormatted = formattedLines.join('\n');
+    
+    // Look for any remaining questions that might have been missed
+    const questionRegex = /([^.!?]*\?[^.!?]*)/g;
+    finalFormatted = finalFormatted.replace(questionRegex, (match) => {
+      const trimmed = match.trim();
+      if (trimmed.length > 10 && trimmed.length < 300 && !trimmed.includes('**') && !trimmed.includes('💡') && !trimmed.includes('🎯')) {
+        return `\n\n**${trimmed}**\n\n`;
+      }
+      return match;
+    });
+
+    return finalFormatted.replace(/\n{4,}/g, '\n\n\n').trim();
+  };
+
+  // Check if current question is a skills rating question
+  const isSkillsRatingQuestion = (text: string): boolean => {
+    return text.toLowerCase().includes('how comfortable are you with these business skills');
+  };
+
+  // Check if current question has multiple choice options
+  const hasMultipleChoiceOptions = (text: string): boolean => {
+    const multipleChoiceQuestions = [
+      'what is your preferred communication style',
+      'what\'s your current work situation',
+      'what kind of business are you trying to build',
+      'do you have any initial funding available',
+      'are you planning to seek outside funding in the future',
+      'would you like angel to:',
+      'do you want to connect with service providers',
+      'what type of business structure are you considering',
+      'how do you plan to generate revenue',
+      'will your business be primarily:',
+      'how comfortable are you with your business information being kept completely private',
+      'would you like me to be proactive in suggesting next steps and improvements throughout our process'
+    ];
+    
+    return multipleChoiceQuestions.some(question => 
+      text.toLowerCase().includes(question)
+    );
+  };
+
+  // Get options for multiple choice questions
+  const getMultipleChoiceOptions = (text: string): string[] => {
+    const lowerText = text.toLowerCase();
+    
+    if (lowerText.includes('what is your preferred communication style')) {
+      return ['Conversational', 'Structured'];
+    }
+    if (lowerText.includes('what\'s your current work situation')) {
+      return ['Full-time employed', 'Part-time', 'Student', 'Unemployed', 'Self-employed/freelancer', 'Other'];
+    }
+    if (lowerText.includes('what kind of business are you trying to build')) {
+      return ['Side hustle', 'Small business', 'Scalable startup', 'Nonprofit/social venture', 'Other'];
+    }
+    if (lowerText.includes('do you have any initial funding available')) {
+      return ['None', 'Personal savings', 'Friends/family', 'External funding (loan, investor)', 'Other'];
+    }
+    if (lowerText.includes('are you planning to seek outside funding in the future')) {
+      return ['Yes', 'No', 'Unsure'];
+    }
+    if (lowerText.includes('would you like angel to:')) {
+      return ['Be more hands-on (do more tasks for you)', 'Be more of a mentor (guide but let you take the lead)', 'Alternate based on the task'];
+    }
+    if (lowerText.includes('do you want to connect with service providers')) {
+      return ['Yes', 'No', 'Later'];
+    }
+    if (lowerText.includes('what type of business structure are you considering')) {
+      return ['LLC', 'Sole proprietorship', 'Corporation', 'Partnership', 'Unsure'];
+    }
+    if (lowerText.includes('how do you plan to generate revenue')) {
+      return ['Direct sales', 'Subscriptions', 'Advertising', 'Licensing', 'Services', 'Other/Multiple'];
+    }
+    if (lowerText.includes('will your business be primarily:')) {
+      return ['Online only', 'Physical location only', 'Both online and physical', 'Unsure'];
+    }
+    if (lowerText.includes('how comfortable are you with your business information being kept completely private')) {
+      return ['Very important - complete privacy', 'Somewhat important', 'Not very important', 'I\'m open to networking opportunities'];
+    }
+    if (lowerText.includes('would you like me to be proactive in suggesting next steps and improvements throughout our process')) {
+      return ['Yes, please be proactive', 'Only when I ask', 'Let me decide each time'];
+    }
+    
+    return [];
+  };
+
+  // Skills rating component
+  const SkillsRatingComponent = () => {
+    const [ratings, setRatings] = useState<{[key: string]: number}>({});
+    
+    const skills = [
+      { key: 'business_planning', label: '📋 Business Planning', emoji: '📋' },
+      { key: 'financial_modeling', label: '💰 Financial Modeling', emoji: '💰' },
+      { key: 'legal_formation', label: '⚖️ Legal Formation', emoji: '⚖️' },
+      { key: 'marketing', label: '📢 Marketing', emoji: '📢' },
+      { key: 'operations', label: '🚚 Operations/Logistics', emoji: '🚚' },
+      { key: 'technology', label: '💻 Technology/Infrastructure', emoji: '💻' },
+      { key: 'fundraising', label: '💼 Fundraising/Investor Outreach', emoji: '💼' }
+    ];
+
+    const handleRatingChange = (skill: string, rating: number) => {
+      setRatings(prev => ({ ...prev, [skill]: rating }));
+    };
+
+    const handleSubmit = () => {
+      const ratingString = skills.map(skill => ratings[skill.key] || 0).join(', ');
+      handleNext(ratingString);
+    };
+
+    return (
+      <div className="mt-4 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">Rate Your Comfort Level</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Rate each skill from 1 to 5 (where 1 = not comfortable, 5 = very comfortable)
+          </p>
+        </div>
+        
+        <div className="space-y-4">
+          {skills.map((skill) => (
+            <div key={skill.key} className="bg-white p-4 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-medium text-gray-800">{skill.label}</span>
+                <span className="text-sm text-gray-500">
+                  {ratings[skill.key] ? `${ratings[skill.key]}/5` : 'Not rated'}
+                </span>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                {[1, 2, 3, 4, 5].map((rating) => (
+                  <button
+                    key={rating}
+                    onClick={() => handleRatingChange(skill.key, rating)}
+                    className={`w-10 h-10 rounded-full border-2 transition-all duration-200 ${
+                      ratings[skill.key] === rating
+                        ? 'bg-blue-500 border-blue-500 text-white shadow-lg transform scale-110'
+                        : 'bg-white border-gray-300 text-gray-400 hover:border-blue-300 hover:text-blue-500'
+                    }`}
+                  >
+                    {rating}
+                  </button>
+                ))}
+              </div>
+              
+              <div className="mt-2 text-xs text-gray-500">
+                {ratings[skill.key] === 1 && 'Not comfortable at all'}
+                {ratings[skill.key] === 2 && 'Slightly uncomfortable'}
+                {ratings[skill.key] === 3 && 'Somewhat comfortable'}
+                {ratings[skill.key] === 4 && 'Quite comfortable'}
+                {ratings[skill.key] === 5 && 'Very comfortable'}
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={handleSubmit}
+            disabled={Object.keys(ratings).length < 7}
+            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg font-medium hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105"
+          >
+            Submit Ratings
+          </button>
+        </div>
+        
+        <div className="mt-4 text-center">
+          <p className="text-xs text-gray-500">
+            💡 Quick tip: You can also type your ratings like "3, 2, 1, 4, 3, 2, 1"
+          </p>
+        </div>
+      </div>
+    );
+  };
+
+  // Multiple choice component
+  const MultipleChoiceComponent = ({ options }: { options: string[] }) => {
+    const [selectedOption, setSelectedOption] = useState<string>('');
+
+    const handleOptionSelect = (option: string) => {
+      setSelectedOption(option);
+      handleNext(option);
+    };
+
+    return (
+      <div className="mt-4 p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-200">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">Choose Your Answer</h3>
+          <p className="text-sm text-gray-600">Select the option that best describes your situation:</p>
+        </div>
+        
+        <div className="space-y-3">
+          {options.map((option, index) => (
+            <button
+              key={index}
+              onClick={() => handleOptionSelect(option)}
+              className="w-full p-4 text-left bg-white rounded-lg border border-gray-200 hover:border-green-300 hover:bg-green-50 transition-all duration-200 transform hover:scale-[1.02] hover:shadow-md"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-gray-800">{option}</span>
+                <div className="w-5 h-5 rounded-full border-2 border-gray-300 flex items-center justify-center">
+                  {selectedOption === option && (
+                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                  )}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+        
+        <div className="mt-4 text-center">
+          <p className="text-xs text-gray-500">
+            💡 Click on any option to select it
+          </p>
+        </div>
+      </div>
+    );
+  };
+
   // Auto-focus input after response is sent
   useEffect(() => {
     if (!loading && inputRef.current) {
@@ -391,7 +903,10 @@ export default function ChatPage() {
           web_search_status: web_search_status,
           immediate_response: immediate_response
         });
-        setCurrentQuestion(formatAngelMessage(reply));
+        const formatted = formatAngelMessage(reply);
+        const questionNumber = extractQuestionNumber(reply); // Don't force question number for introductions
+        setCurrentQuestion(formatted);
+        setCurrentQuestionNumber(questionNumber);
         setProgress(progress);
         setWebSearchStatus(web_search_status || { is_searching: false, query: undefined, completed: false });
         
@@ -421,7 +936,7 @@ export default function ChatPage() {
     setCurrentInput("");
     setHistory((prev) => [
       ...prev,
-      { question: currentQuestion, answer: input },
+      { question: currentQuestion, answer: input, questionNumber: currentQuestionNumber },
     ]);
 
     try {
@@ -448,6 +963,17 @@ export default function ChatPage() {
         setProgress(progress);
         return;
       }
+
+      // Handle KYC to Business Plan transition
+      if (transition_phase === "KYC_TO_BUSINESS_PLAN" || 
+          (progress.phase === "BUSINESS_PLAN" && progress.answered === 0)) {
+        setKycToBusinessTransition({
+          kycSummary: reply || "KYC completed successfully!",
+          isActive: true
+        });
+        setProgress(progress);
+        return;
+      }
       
       // Handle roadmap generation
       if (transition_phase === "ROADMAP_GENERATED") {
@@ -460,7 +986,9 @@ export default function ChatPage() {
       }
       
       const formatted = formatAngelMessage(reply);
+      const nextQuestionNumber = extractQuestionNumber(reply); // Don't force question number for non-questions
       setCurrentQuestion(formatted);
+      setCurrentQuestionNumber(nextQuestionNumber);
       setProgress(progress);
       setWebSearchStatus(web_search_status || { is_searching: false, query: undefined, completed: false });
       
@@ -721,6 +1249,92 @@ export default function ChatPage() {
   if (loading && currentQuestion === "")
     return <VentureLoader title="Loading your venture" />;
 
+  // Show KYC to Business Plan transition
+  if (kycToBusinessTransition && kycToBusinessTransition.isActive) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-teal-50 flex items-center justify-center p-4">
+        <div className="max-w-4xl w-full">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-teal-500 to-blue-600 p-8 text-center">
+              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl">🎉</span>
+              </div>
+              <h1 className="text-3xl font-bold text-white mb-2">KYC Phase Complete!</h1>
+              <p className="text-teal-100 text-lg">Great job completing your entrepreneurial profile</p>
+            </div>
+
+            {/* Content */}
+            <div className="p-8">
+              <div className="prose prose-lg max-w-none mb-8">
+                <div 
+                  className="text-gray-700 leading-relaxed"
+                  dangerouslySetInnerHTML={{ 
+                    __html: formatQuestionText(kycToBusinessTransition.kycSummary).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+                  }}
+                />
+              </div>
+
+              {/* Next Steps */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 mb-8 border border-blue-200">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                  <span className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm mr-3">📋</span>
+                  Ready for Business Planning?
+                </h3>
+                <p className="text-gray-600 mb-4">
+                  Now we'll dive deep into every aspect of your business idea. I'll be asking detailed questions about your product, market, finances, and strategy.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
+                  <div className="flex items-start">
+                    <span className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center text-green-600 text-xs mr-2 mt-0.5">✓</span>
+                    <span>Mission, vision, and unique selling proposition</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center text-green-600 text-xs mr-2 mt-0.5">✓</span>
+                    <span>Target audience and competitors</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center text-green-600 text-xs mr-2 mt-0.5">✓</span>
+                    <span>Revenue model and financial planning</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center text-green-600 text-xs mr-2 mt-0.5">✓</span>
+                    <span>Marketing and operational strategies</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <button
+                  onClick={handleStartBusinessPlanning}
+                  disabled={loading}
+                  className="group relative bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white px-8 py-4 rounded-xl text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                >
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="text-xl">🚀</span>
+                    <span>Start Business Planning</span>
+                    {loading && (
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white ml-2"></div>
+                    )}
+                  </div>
+                  <div className="absolute inset-0 bg-white/20 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                </button>
+              </div>
+
+              {/* Quote */}
+              <div className="text-center mt-8">
+                <p className="text-gray-500 italic text-sm">
+                  "The way to get started is to quit talking and begin doing." - Walt Disney
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Show transition component if in transition phase
   if (transitionData && transitionData.transitionPhase === "PLAN_TO_ROADMAP") {
     return (
@@ -978,8 +1592,21 @@ export default function ChatPage() {
                       <div className="font-semibold text-gray-800 mb-1 text-sm">
                         Angel
                       </div>
+                      {progress.phase === "KYC" && pair.questionNumber && (
+                        <div className="mb-2">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            Question {pair.questionNumber}
+                          </span>
+                        </div>
+                      )}
                       <div className="text-gray-800 whitespace-pre-wrap text-sm">
-                        {formatAngelMessage(pair.question)}
+                        {progress.phase === "KYC" ? (
+                          <div dangerouslySetInnerHTML={{ 
+                            __html: formatQuestionText(pair.question).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+                          }} />
+                        ) : (
+                          formatAngelMessage(pair.question)
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1013,6 +1640,13 @@ export default function ChatPage() {
                     <div className="font-semibold text-gray-800 mb-1 text-sm">
                       Angel
                     </div>
+                    {!loading && progress.phase === "KYC" && currentQuestionNumber && (
+                      <div className="mb-2">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          Question {currentQuestionNumber}
+                        </span>
+                      </div>
+                    )}
                     <div className="text-gray-800 whitespace-pre-wrap text-sm">
                       {loading ? (
                         <div className="flex items-center gap-2">
@@ -1022,9 +1656,16 @@ export default function ChatPage() {
                           </span>
                         </div>
                       ) : (
-                        currentQuestion || "Loading..."
+                        progress.phase === "KYC" ? (
+                          <div dangerouslySetInnerHTML={{ 
+                            __html: formatQuestionText(currentQuestion || "Loading...").replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+                          }} />
+                        ) : (
+                          formatAngelMessage(currentQuestion || "Loading...")
+                        )
                       )}
                     </div>
+                    
                   </div>
                 </div>
               </div>
