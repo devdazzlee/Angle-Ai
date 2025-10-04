@@ -134,19 +134,38 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
             }
         }
 
-    # Tag handling - Only increment when moving to a genuinely new question
-    last_tag = session.get("asked_q")
-    tag = parse_tag(assistant_reply)
+    # Check if this is a command response that should not trigger tag processing
+    command_indicators = [
+        "Here's a draft based on what you've shared",
+        "Let's work through this together",
+        "Here's a refined version of your thoughts",
+        "I'll create additional content for you",
+        "Verification:",
+        "Here's what I've captured so far:"
+    ]
+    
+    is_command_response = any(indicator in assistant_reply for indicator in command_indicators)
+    
+    if is_command_response:
+        print(f"🔧 Command response detected - skipping tag processing to prevent question skipping")
+        # Don't process tags for command responses - stay on current question
+        tag = None
+    else:
+        # Tag handling - Only increment when moving to a genuinely new question
+        last_tag = session.get("asked_q")
+        tag = parse_tag(assistant_reply)
 
     print(f"🏷️ Tag Analysis:")
-    print(f"  - Last tag: {last_tag}")
+    print(f"  - Last tag: {session.get('asked_q')}")
     print(f"  - Current tag: {tag}")
+    print(f"  - Is command response: {is_command_response}")
     print(f"  - Current answered_count: {session.get('answered_count', 0)}")
     print(f"  - Assistant reply preview: {assistant_reply[:100]}...")
 
     # Only increment answered_count when moving to a genuinely new tagged question
     # Follow-up questions or clarifications should NOT increment the count
-    if last_tag and tag and last_tag != tag:
+    # Skip increment for command responses
+    if not is_command_response and last_tag and tag and last_tag != tag:
         # Check if this is a genuine progression to next question
         # (not just a clarification or follow-up)
         last_phase, last_num = last_tag.split(".")
@@ -163,11 +182,11 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
             print(f"✅ Incremented answered_count to {session['answered_count']}")
         else:
             print(f"❌ No increment - not a sequential question progression")
-    elif not last_tag and tag:
+    elif not is_command_response and not last_tag and tag:
         # First question with a tag - this should increment
         session["answered_count"] += 1
         print(f"✅ First question with tag - incremented answered_count to {session['answered_count']}")
-    elif not tag:
+    elif not is_command_response and not tag:
         print(f"⚠️ No tag found in assistant reply")
         # Fallback: If no tag but we have a conversation, increment conservatively
         if len(history) > 0:
@@ -181,9 +200,12 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
                 session["answered_count"] = 2
                 print(f"🔄 Fallback: Incremented answered_count to 2 (second question without tag)")
     else:
-        print(f"⚠️ No tag change or missing tags")
+        if is_command_response:
+            print(f"🔧 Command response - skipping answered_count increment")
+        else:
+            print(f"⚠️ No tag change or missing tags")
 
-    if tag:
+    if tag and not is_command_response:
         # Validate tag format and detect backwards progression
         previous_tag = session.get("asked_q", "")
         if previous_tag:
@@ -212,15 +234,10 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
         session["asked_q"] = tag
         session["current_phase"] = tag.split(".")[0]
         print(f"📝 Updated session: asked_q={tag}, current_phase={tag.split('.')[0]}")
-    else:
-        # If no tag found, try to maintain current phase or set default
-        if not session.get("current_phase"):
-            session["current_phase"] = "KYC"
-            print(f"📝 Set default phase to KYC")
-
+        
         # Auto-transition to roadmap after business plan completion
         # Only transition when we've completed all business plan questions (46 total)
-        if tag and tag.startswith("BUSINESS_PLAN."):
+        if tag.startswith("BUSINESS_PLAN."):
             try:
                 question_num = int(tag.split(".")[1])
                 if question_num > 46:
@@ -230,6 +247,14 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
             except (ValueError, IndexError):
                 print(f"⚠️ Error parsing question number from tag: {tag}")
                 # Don't transition if we can't parse the question number
+    else:
+        # If no tag found or command response, try to maintain current phase or set default
+        if not session.get("current_phase"):
+            session["current_phase"] = "KYC"
+            print(f"📝 Set default phase to KYC")
+        
+        if is_command_response:
+            print(f"🔧 Command response - maintaining current session state without tag updates")
 
     # Calculate progress based on current phase and answered count
     current_phase = session["current_phase"]

@@ -229,6 +229,35 @@ export default function ChatPage() {
     });
   };
 
+  // Handle Draft More button click
+  const handleDraftMore = async () => {
+    setLoading(true);
+    
+    try {
+      const {
+        result: { reply, progress, web_search_status, immediate_response },
+      } = await fetchQuestion("Draft More", sessionId!);
+      const formatted = formatAngelMessage(reply);
+      setCurrentQuestion(formatted);
+      setProgress(progress);
+      setWebSearchStatus(web_search_status || { is_searching: false, query: undefined, completed: false });
+      
+      // Show immediate response if available
+      if (immediate_response) {
+        // toast.info(immediate_response, { 
+        //   autoClose: 5000,
+        //   position: "top-center",
+        //   className: "bg-blue-50 border border-blue-200 text-blue-800"
+        // });
+      }
+    } catch (error) {
+      console.error("Failed to fetch question:", error);
+      toast.error("Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Handle saving modified text
   const handleModifySave = async (modifiedText: string) => {
     setModifyModal(prev => ({ ...prev, isOpen: false }));
@@ -1901,8 +1930,10 @@ export default function ChatPage() {
                 <AcceptModifyButtons
                   onAccept={handleAccept}
                   onModify={handleModify}
+                  onDraftMore={handleDraftMore}
                   disabled={loading}
                   currentText={currentQuestion}
+                  showDraftMore={currentQuestion?.toLowerCase().includes('draft') || false}
                 />
               </div>
             )}
