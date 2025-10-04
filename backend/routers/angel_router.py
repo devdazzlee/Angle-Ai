@@ -184,6 +184,31 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
         print(f"⚠️ No tag change or missing tags")
 
     if tag:
+        # Validate tag format and detect backwards progression
+        previous_tag = session.get("asked_q", "")
+        if previous_tag:
+            try:
+                prev_phase, prev_num = previous_tag.split(".")
+                prev_num = int(prev_num)
+                
+                current_phase, current_num = tag.split(".")
+                current_num = int(current_num)
+                
+                # Check for backwards progression
+                if prev_phase == current_phase and current_num < prev_num:
+                    print(f"⚠️ WARNING: Backwards question progression detected!")
+                    print(f"  Previous: {previous_tag} (question {prev_num})")
+                    print(f"  Current: {tag} (question {current_num})")
+                    print(f"  This may indicate an AI model error in tag generation")
+                    
+                    # Fix backwards progression by incrementing the question number
+                    corrected_num = prev_num + 1
+                    corrected_tag = f"{current_phase}.{corrected_num:02d}"
+                    print(f"🔧 Correcting tag from {tag} to {corrected_tag}")
+                    tag = corrected_tag
+            except (ValueError, IndexError) as e:
+                print(f"⚠️ Error parsing tag format: {e}")
+        
         session["asked_q"] = tag
         session["current_phase"] = tag.split(".")[0]
         print(f"📝 Updated session: asked_q={tag}, current_phase={tag.split('.')[0]}")
@@ -195,9 +220,16 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
 
         # Auto-transition to roadmap after business plan completion
         # Only transition when we've completed all business plan questions (46 total)
-        if tag and tag.startswith("BUSINESS_PLAN.") and int(tag.split(".")[1]) > 46:
-            session["asked_q"] = "ROADMAP.01"
-            session["current_phase"] = "ROADMAP"
+        if tag and tag.startswith("BUSINESS_PLAN."):
+            try:
+                question_num = int(tag.split(".")[1])
+                if question_num > 46:
+                    session["asked_q"] = "ROADMAP.01"
+                    session["current_phase"] = "ROADMAP"
+                    print(f"🔄 Auto-transitioned to ROADMAP after completing BUSINESS_PLAN question {question_num}")
+            except (ValueError, IndexError):
+                print(f"⚠️ Error parsing question number from tag: {tag}")
+                # Don't transition if we can't parse the question number
 
     # Calculate progress based on current phase and answered count
     current_phase = session["current_phase"]
@@ -224,6 +256,18 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
     # Clean response
     display_reply = re.sub(r'Question \d+ of \d+ \(\d+%\):', '', assistant_reply, flags=re.IGNORECASE)
     display_reply = re.sub(r'\[\[Q:[A-Z_]+\.\d{2}]]', '', display_reply)
+    
+    # Clean up excessive spacing for Angel introduction text
+    if 'welcome to founderport' in display_reply.lower():
+        # Reduce excessive line breaks throughout the entire text
+        display_reply = re.sub(r'\n{4,}', '\n\n', display_reply)  # Reduce 4+ newlines to 2
+        display_reply = re.sub(r'\n{3}', '\n\n', display_reply)  # Reduce 3 newlines to 2
+        # Fix spacing around journey question
+        display_reply = re.sub(r'\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n', '\n\nAre you ready to begin your journey?\n\n', display_reply)
+        # Fix spacing around questionnaire intro
+        display_reply = re.sub(r'\n\s*\n\s*Let\'s start with the Getting to Know You questionnaire', '\n\nLet\'s start with the Getting to Know You questionnaire', display_reply)
+        # Final cleanup - ensure no more than 2 consecutive newlines anywhere
+        display_reply = re.sub(r'\n{3,}', '\n\n', display_reply)
 
     # Return progress information
     progress_info = phase_progress

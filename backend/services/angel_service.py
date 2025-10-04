@@ -34,10 +34,17 @@ Examples:
 - [[Q:KYC.01]] What's your name?
 - [[Q:KYC.02]] What is your preferred communication style?
 - [[Q:BUSINESS_PLAN.01]] What is your business idea?
+- [[Q:BUSINESS_PLAN.19]] What is your revenue model?
+- [[Q:BUSINESS_PLAN.20]] How will you market your business?
 
-The tag must be at the beginning of your question, before any other text. This is essential for progress tracking.
+IMPORTANT RULES:
+1. The tag must be at the beginning of your question, before any other text
+2. Question numbers must be sequential and correct for the current phase
+3. For BUSINESS_PLAN phase, questions should be numbered 01 through 46
+4. NEVER jump backwards in question numbers (e.g., from 19 to 10)
+5. If you're continuing a conversation, increment the question number appropriately
 
-FAILURE TO INCLUDE TAGS WILL BREAK THE SYSTEM. ALWAYS include the tag before asking any question.
+FAILURE TO INCLUDE CORRECT TAGS WILL BREAK THE SYSTEM. ALWAYS include the correct sequential tag before asking any question.
 
 FORMATTING REQUIREMENT: Always use structured format for questions - NEVER paragraph format!"""
 
@@ -114,7 +121,7 @@ def format_response_structure(reply):
     
     is_work_situation_question = "work situation" in formatted_reply.lower()
     
-    is_multiple_choice_question = ("•" in formatted_reply or 
+    is_multiple_choice_question = ("•" in formatted_reply or "○" in formatted_reply or 
                                   any(option in formatted_reply.lower() for option in ["full-time employed", "part-time", "student", "unemployed"]))
     
     # For dropdown questions, remove the options from the message
@@ -143,6 +150,14 @@ def format_response_structure(reply):
         # Also handle single-line format
         multi_choice_single_pattern = r'([^?]+\?)\s*\n(• [^\n]+(?:\n• [^\n]+)*)'
         formatted_reply = re.sub(multi_choice_single_pattern, r'\1', formatted_reply)
+        
+        # Handle circle bullets (○) - remove these options too
+        circle_choice_pattern = r'([^?]+\?)\s*\n\n(○ [^\n]+(?:\n○ [^\n]+)*)'
+        formatted_reply = re.sub(circle_choice_pattern, r'\1', formatted_reply)
+        
+        # Also handle single-line format for circles
+        circle_choice_single_pattern = r'([^?]+\?)\s*\n(○ [^\n]+(?:\n○ [^\n]+)*)'
+        formatted_reply = re.sub(circle_choice_single_pattern, r'\1', formatted_reply)
     
     # Specific formatting for work situation question (if not already handled)
     if "work situation" in formatted_reply.lower() and "?" in formatted_reply and not is_work_situation_question:
@@ -171,6 +186,9 @@ def format_response_structure(reply):
         formatted_reply = re.sub(multi_choice_pattern, 
             lambda m: f"{m.group(1)}\n\n• {m.group(2).replace(' ', ' • ')}", 
             formatted_reply)
+    
+    # Convert circle bullets to regular bullets for consistency
+    formatted_reply = re.sub(r'○\s*', '• ', formatted_reply)
     
     # Clean up any double bullet points
     formatted_reply = re.sub(r'•\s*•\s*', '• ', formatted_reply)
@@ -290,6 +308,10 @@ def suggest_draft_if_relevant(reply, session_data, user_input, history):
     """Suggest using Draft if user has already provided relevant information"""
     
     if not history or not user_input:
+        return reply
+    
+    # Don't suggest draft in KYC phase
+    if session_data and session_data.get("current_phase") == "KYC":
         return reply
     
     # Keywords that indicate the user might have already provided relevant information
@@ -500,6 +522,10 @@ def identify_support_areas(session_data, history):
 def add_proactive_support_guidance(reply, session_data, history):
     """Add proactive support guidance based on identified areas needing help"""
     
+    # Don't add support guidance in KYC phase
+    if session_data and session_data.get("current_phase") == "KYC":
+        return reply
+    
     # Only add support guidance if not already present in the reply
     tip_patterns = [
         "💡 Quick Tip:",
@@ -599,7 +625,7 @@ def inject_missing_tag(reply, session_data=None):
 async def handle_kyc_completion(session_data, history):
     """Handle the transition from KYC completion to Business Plan phase"""
     
-    # First, acknowledge the last question with a normal response
+    # Return the completion message and trigger transition
     acknowledgment = """That's fantastic! Your proactive approach will help ensure we make the most of our time together and that you get the guidance you need when you need it.
 
 🎉 **Congratulations! You've completed your entrepreneurial profile!** 🎉
@@ -741,6 +767,278 @@ async def generate_business_plan_summary(session_data, history):
         print(f"Error generating business plan summary: {e}")
         return "Business plan summary generation in progress..."
 
+def provide_critiquing_feedback(user_msg, session_data, history):
+    """
+    Provide constructive critique and challenging feedback to push for deeper thinking
+    """
+    # Don't critique simple yes/no answers or very short responses to simple questions
+    if not user_msg or len(user_msg.strip()) < 5:
+        return None
+    
+    # Check for vague or unrealistic answers only for complex questions
+    vague_indicators = ["maybe", "probably", "i think", "not sure", "don't know", "maybe", "possibly"]
+    if any(indicator in user_msg.lower() for indicator in vague_indicators) and len(user_msg.strip()) > 50:
+        return {
+            "reply": f"I notice some uncertainty in your response. Let me challenge you to think deeper: What specific research have you done to support this? What are the concrete steps you're considering? What potential obstacles do you foresee, and how would you address them?",
+            "web_search_status": {"is_searching": False, "query": None, "completed": False}
+        }
+    
+    # Check for unrealistic assumptions
+    unrealistic_indicators = ["easy", "simple", "quick", "fast", "guaranteed", "definitely will work"]
+    if any(indicator in user_msg.lower() for indicator in unrealistic_indicators) and len(user_msg.strip()) > 50:
+        return {
+            "reply": f"While I appreciate your confidence, I want to challenge some assumptions here. What makes you think this will be [easy/simple/quick]? What data or experience supports this timeline? What's your contingency plan if things don't go as expected?",
+            "web_search_status": {"is_searching": False, "query": None, "completed": False}
+        }
+    
+    return None
+
+def validate_question_answer(user_msg, session_data, history):
+    """
+    Enhanced validation with critiquing behaviors - challenge superficial answers
+    and push for deeper thinking and specificity.
+    Validate that user is not trying to skip questions in KYC and Business Plan phases
+    """
+    if not session_data:
+        return None
+    
+    current_phase = session_data.get("current_phase", "")
+    asked_q = session_data.get("asked_q", "")
+    
+    # Don't validate during initial startup (when asked_q is empty or initial)
+    if not asked_q or asked_q in ["", "KYC.01", "BUSINESS_PLAN.01"]:
+        return None
+    
+    # Only validate for KYC and Business Plan phases
+    if current_phase not in ["KYC", "BUSINESS_PLAN"]:
+        return None
+    
+    # Extract content from user_msg (could be dict or string)
+    if isinstance(user_msg, dict):
+        user_content = user_msg.get("content", "")
+    else:
+        user_content = str(user_msg)
+    
+    # Check if user is trying to use commands to skip questions
+    user_msg_lower = user_content.lower().strip()
+    
+    # Commands that are allowed (these don't skip questions, they help answer them)
+    # In KYC phase, disable all helper commands to force direct answers
+    if current_phase == "KYC":
+        blocked_commands = ["draft", "support", "scrapping:", "kickstart", "who do i contact?"]
+        
+        # Block these commands in KYC phase
+        if any(user_msg_lower.startswith(cmd) for cmd in blocked_commands):
+            return {
+                "reply": f"""I understand you'd like to use helper tools, but during the KYC phase, it's important that you provide direct answers to help me understand your background and goals.
+
+Please provide a direct answer to the current question. This will help me personalize your experience and provide the most relevant guidance for your specific situation.
+
+The helper tools (Draft, Support, Scrapping, Kickstart, Contact) will be available in the Business Planning phase where they can be more helpful for complex business questions.
+
+For now, please share your thoughts directly about the current question.""",
+                "web_search_status": {"is_searching": False, "query": None, "completed": False}
+            }
+    else:
+        # In other phases, allow these commands
+        allowed_commands = ["draft", "support", "scrapping:", "kickstart", "who do i contact?"]
+        
+        # If user is using an allowed command, let them proceed
+        if any(user_msg_lower.startswith(cmd) for cmd in allowed_commands):
+            return None
+    
+    # Check for attempts to skip or manipulate the conversation
+    skip_indicators = [
+        "skip", "next", "move on", "continue", "go to next", "next question",
+        "i don't want to answer", "i'll answer later", "not now", "maybe later",
+        "i'm done", "finished", "complete", "that's enough", "no more questions"
+    ]
+    
+    if any(indicator in user_msg_lower for indicator in skip_indicators):
+        # Get the current question context
+        current_question_num = "1"
+        if "." in asked_q:
+            try:
+                current_question_num = asked_q.split(".")[1]
+            except:
+                pass
+        
+        # Create phase-specific message
+        if current_phase == "KYC":
+            help_message = """Please provide a direct answer to the current question. This will help me personalize your experience and provide the most relevant guidance for your specific situation."""
+        else:
+            help_message = """If you're unsure about how to answer, you can use:
+- **Support** - for guided help with the question
+- **Draft** - for me to help create an answer based on what you've shared so far"""
+        
+        return {
+            "reply": f"""I understand you'd like to move forward, but it's important that we complete each question to ensure I can provide you with the best possible guidance.
+
+We're currently on question {current_question_num} of the {current_phase} phase. Each question is designed to help me understand your specific situation and provide personalized advice.
+
+Please provide an answer to the current question so we can continue building your comprehensive business plan together. Your detailed responses will help me tailor the guidance specifically for your needs.
+
+{help_message}
+
+Let's continue with the current question.""",
+            "web_search_status": {"is_searching": False, "query": None, "completed": False}
+        }
+    
+    # Check if user is asking clarifying questions about the current question (these are allowed)
+    clarifying_questions = [
+        "what question", "what is the question", "what do you want to know", "what should i answer",
+        "what are you asking", "what is this question about", "can you repeat the question",
+        "what do you need to know", "what information do you need", "what should i tell you"
+    ]
+    
+    if any(clarifying_question in user_msg_lower for clarifying_question in clarifying_questions):
+        # Allow clarifying questions - these help users understand what to answer
+        return None
+    
+    # Check if user is trying to ask unrelated questions instead of answering
+    unrelated_question_indicators = ["what is ai", "tell me about", "explain", "how does", "can you tell me about"]
+    
+    if user_msg_lower.endswith("?") and any(indicator in user_msg_lower for indicator in unrelated_question_indicators):
+        # Create phase-specific message
+        if current_phase == "KYC":
+            help_message = """Please provide a direct answer to help me understand your situation better."""
+        else:
+            help_message = """If you need help with the current question, you can use:
+- **Support** - for guided help with the question
+- **Draft** - for me to help create an answer based on what you've shared so far"""
+        
+        return {
+            "reply": f"""I appreciate your question! However, right now we're in the {current_phase} phase where I'm gathering information about you and your business to provide personalized guidance.
+
+I'd be happy to answer your question once we complete the current question. For now, please provide an answer to help me understand your situation better.
+
+{help_message}
+
+Let's focus on answering the current question first.""",
+            "web_search_status": {"is_searching": False, "query": None, "completed": False}
+        }
+    
+    # Check if user is providing rating responses to non-rating questions
+    if current_phase == "KYC":
+        # Check if this looks like a rating response (numbers separated by commas)
+        rating_pattern = r'^\d+,\s*\d+,\s*\d+,\s*\d+,\s*\d+,\s*\d+,\s*\d+$'
+        if re.match(rating_pattern, user_content.strip()):
+            # Only allow rating responses for KYC.07 (skills rating question)
+            if asked_q != "KYC.07":
+                return {
+                    "reply": f"""I see you've provided a rating response, but the current question is asking about something different.
+
+We're currently on question {asked_q.split('.')[1] if '.' in asked_q else 'unknown'} which asks: "{asked_q.replace('KYC.', '')}"
+
+Please provide an answer that directly addresses the current question instead of rating responses.""",
+                    "web_search_status": {"is_searching": False, "query": None, "completed": False}
+                }
+    
+    # Check for very short or empty responses that might indicate skipping
+    if len(user_content.strip()) < 3 and user_msg_lower not in ["yes", "no", "y", "n", "ok", "okay"]:
+        # Different messages for KYC vs other phases
+        if current_phase == "KYC":
+            return {
+                "reply": f"""I need a bit more information to help you effectively. Please provide a more detailed answer to the current question.
+
+The more information you share, the better I can tailor my guidance to your specific situation and needs.
+
+Please provide a more detailed response to continue.""",
+                "web_search_status": {"is_searching": False, "query": None, "completed": False}
+            }
+        else:
+            return {
+                "reply": f"""I need a bit more information to help you effectively. Please provide a more detailed answer to the current question.
+
+The more information you share, the better I can tailor my guidance to your specific situation and needs.
+
+If you're unsure how to answer, you can use:
+- **Support** - for guided help with the question
+- **Draft** - for me to help create an answer based on what you've shared so far
+
+Please provide a more detailed response to continue.""",
+                "web_search_status": {"is_searching": False, "query": None, "completed": False}
+            }
+    
+    return None
+
+def validate_session_state(session_data, history):
+    """Validate session state integrity to prevent question skipping"""
+    if not session_data:
+        return None
+    
+    current_phase = session_data.get("current_phase", "")
+    asked_q = session_data.get("asked_q", "")
+    answered_count = session_data.get("answered_count", 0)
+    
+    # Don't validate during initial startup (when asked_q is empty or initial)
+    if not asked_q or asked_q in ["", "KYC.01", "BUSINESS_PLAN.01"]:
+        return None
+    
+    # Only validate for KYC and Business Plan phases
+    if current_phase not in ["KYC", "BUSINESS_PLAN"]:
+        return None
+    
+    # Calculate expected answered count based on history
+    expected_answered_count = len([pair for pair in history if pair.get("answer", "").strip()])
+    
+    # Check if answered_count is significantly behind (indicating skipped questions)
+    # Only trigger if there's a major discrepancy (more than 2 questions behind)
+    if answered_count < expected_answered_count - 2:
+        # Create phase-specific message
+        if current_phase == "KYC":
+            help_message = """Please provide a complete answer to the current question so we can continue building your comprehensive business plan."""
+        else:
+            help_message = """If you need help with the current question, you can use:
+- **Support** - for guided help with the question
+- **Draft** - for me to help create an answer based on what you've shared so far"""
+        
+        return {
+            "reply": f"""I notice there might be a discrepancy in our conversation history. To ensure I can provide you with the most accurate and personalized guidance, we need to make sure we've properly addressed all questions.
+
+We're currently in the {current_phase} phase. Please provide a complete answer to the current question so we can continue building your comprehensive business plan.
+
+Your detailed responses are essential for creating a tailored business strategy that addresses your specific needs and goals.
+
+{help_message}
+
+Let's continue with the current question.""",
+            "web_search_status": {"is_searching": False, "query": None, "completed": False}
+        }
+    
+    # Validate that asked_q is in the correct format and sequence
+    if current_phase == "KYC":
+        if not asked_q.startswith("KYC.") and asked_q != "KYC.19_ACK":
+            return {
+                "reply": f"""I need to ensure we're following the proper KYC sequence. Please provide an answer to the current KYC question so we can continue systematically building your business profile.
+
+Each question in the KYC phase is designed to help me understand your background, experience, and goals. Skipping questions would prevent me from providing you with the most relevant and personalized guidance.
+
+Please provide a detailed answer to the current question. This will help me personalize your experience and provide the most relevant guidance for your specific situation.
+
+Let's continue with the current KYC question.""",
+                "web_search_status": {"is_searching": False, "query": None, "completed": False}
+            }
+    
+    elif current_phase == "BUSINESS_PLAN":
+        if not asked_q.startswith("BUSINESS_PLAN."):
+            return {
+                "reply": f"""I need to ensure we're following the proper Business Plan sequence. Please provide an answer to the current business planning question so we can continue systematically developing your business strategy.
+
+Each question in the Business Plan phase is designed to help create a comprehensive and actionable business plan tailored to your specific situation. Skipping questions would result in an incomplete plan that doesn't address all the necessary aspects of your business.
+
+Please provide a detailed answer to the current question.
+
+If you need help, you can use:
+- **Support** - for guided help with the question
+- **Draft** - for me to help create an answer based on what you've shared so far
+
+Let's continue with the current business planning question.""",
+                "web_search_status": {"is_searching": False, "query": None, "completed": False}
+            }
+    
+    return None
+
 async def get_angel_reply(user_msg, history, session_data=None):
     import time
     start_time = time.time()
@@ -748,12 +1046,29 @@ async def get_angel_reply(user_msg, history, session_data=None):
     # Get user name from session data, fallback to generic greeting
     user_name = session_data.get("user_name", "there") if session_data else "there"
     
-    # Check if we need to trigger KYC completion (after acknowledgment has been shown)
-    if (session_data and 
-        session_data.get("current_phase") == "KYC" and 
-        session_data.get("asked_q", "").endswith("_ACK")):
-        print(f"🎯 KYC completion triggered - showing completion message")
-        return await handle_kyc_completion(session_data, history)
+    # KYC completion check removed - now triggered immediately after final answer
+    
+    # Validate that user is not trying to skip questions
+    validation_result = validate_question_answer(user_msg, session_data, history)
+    if validation_result:
+        return validation_result
+    
+    # Debug logging for session state
+    if session_data:
+        print(f"🔍 DEBUG - Session State: phase={session_data.get('current_phase')}, asked_q={session_data.get('asked_q')}, answered_count={session_data.get('answered_count')}")
+    
+    # Validate session state integrity
+    session_validation = validate_session_state(session_data, history)
+    if session_validation:
+        print(f"🔍 DEBUG - Session validation triggered: {session_validation.get('reply', '')[:100]}...")
+        return session_validation
+    
+    # Provide critiquing feedback for superficial or unrealistic answers
+    if user_msg and user_msg.get("content"):
+        critique_feedback = provide_critiquing_feedback(user_msg["content"], session_data, history)
+        if critique_feedback:
+            print(f"🔍 DEBUG - Critiquing feedback triggered: {critique_feedback.get('reply', '')[:100]}...")
+            return critique_feedback
     
     # Define formatting instruction at the top to avoid UnboundLocalError
     FORMATTING_INSTRUCTION = f"""
@@ -780,6 +1095,8 @@ What's your current work situation?
 • Unemployed
 • Self-employed/freelancer
 • Other"
+
+IMPORTANT: ALWAYS use regular bullets (•) for multiple choice options, NEVER use circle bullets (○)
 
 For rating questions:
 "That's helpful, {user_name}!
@@ -812,6 +1129,8 @@ Does this look accurate to you? If not, please let me know where you'd like to m
 "Have you started a business before?
 • Yes
 • No"
+
+CRITICAL: Use regular bullets (•) for ALL multiple choice options, never circle bullets (○)
 
 BUSINESS PLAN SPECIFIC RULES:
 • Ask ONE question at a time in EXACT sequential order
@@ -948,14 +1267,15 @@ Do NOT include question numbers, progress percentages, or step counts in your re
                 except (ValueError, IndexError):
                     pass
         
-        # Default response for other cases
-        return "Great! Let's move to the next question..."
+        # For other cases, let the normal flow handle it
+        # Don't return a fallback here - let the main AI generation handle the response
     
     # Add instruction for proper question formatting
     
     # Check if web search is needed based on session phase and content
     needs_web_search = False
     web_search_query = None
+    competitor_research_requested = False
     
     if session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
         # Look for competitive analysis, market research, or vendor recommendation needs
@@ -967,8 +1287,11 @@ Do NOT include question numbers, progress percentages, or step counts in your re
             current_year = datetime.now().year
             previous_year = current_year - 1
             
-            if "competitors" in user_content.lower():
-                web_search_query = f"competitors in {session_data.get('industry', 'business')} industry {previous_year}"
+            # ENHANCED COMPETITOR RESEARCH DETECTION
+            competitor_keywords = ["competitors", "competition", "main competitors", "who are my competitors", "competing companies", "rival companies"]
+            if any(keyword in user_content.lower() for keyword in competitor_keywords):
+                competitor_research_requested = True
+                web_search_query = f"main competitors in {session_data.get('industry', 'business')} industry {previous_year}"
             elif "market" in user_content.lower() or "trends" in user_content.lower():
                 web_search_query = f"market trends {session_data.get('industry', 'business')} {session_data.get('location', '')} {previous_year}"
             elif "domain" in user_content.lower():
@@ -988,18 +1311,44 @@ Do NOT include question numbers, progress percentages, or step counts in your re
         # Provide immediate feedback to user
         immediate_response = f"I'm conducting some background research on '{web_search_query}' to provide you with the most current information. This will just take a moment..."
         
-        # Conduct the search
-        search_start = time.time()
-        search_results = await conduct_web_search(web_search_query)
-        search_time = time.time() - search_start
-        print(f"🔍 Web search completed in {search_time:.2f} seconds")
+        # ENHANCED COMPETITOR RESEARCH HANDLING
+        if competitor_research_requested:
+            # Extract business context for comprehensive competitor research
+            business_context = extract_business_context_from_history(history)
+            if session_data:
+                business_context.update({
+                    "industry": session_data.get("industry", ""),
+                    "location": session_data.get("location", ""),
+                    "business_name": session_data.get("business_name", ""),
+                    "business_type": session_data.get("business_type", "")
+                })
+            
+            # Conduct comprehensive competitor research
+            competitor_research_result = await handle_competitor_research_request(user_content, business_context, history)
+            
+            if competitor_research_result.get("success"):
+                search_results = f"\n\n🔍 **Comprehensive Competitor Research Results:**\n\n{competitor_research_result['analysis']}\n\n*Research conducted using {competitor_research_result['research_sources']} authoritative sources*"
+            else:
+                # Fallback to regular web search
+                search_start = time.time()
+                search_results = await conduct_web_search(web_search_query)
+                search_time = time.time() - search_start
+                print(f"🔍 Web search completed in {search_time:.2f} seconds")
+                
+                if search_results and "unable to conduct web research" not in search_results:
+                    search_results = f"\n\nResearch Results:\n{search_results}"
+        else:
+            # Regular web search for non-competitor requests
+            search_start = time.time()
+            search_results = await conduct_web_search(web_search_query)
+            search_time = time.time() - search_start
+            print(f"🔍 Web search completed in {search_time:.2f} seconds")
+            
+            if search_results and "unable to conduct web research" not in search_results:
+                search_results = f"\n\nResearch Results:\n{search_results}"
         
         # Update status to completed
         web_search_status = {"is_searching": False, "query": web_search_query, "completed": True}
-        
-        # If search was successful, include results in the response
-        if search_results and "unable to conduct web research" not in search_results:
-            search_results = f"\n\nResearch Results:\n{search_results}"
 
     # Build messages for OpenAI - optimized for speed
     msgs = [
@@ -1041,18 +1390,22 @@ Do NOT include question numbers, progress percentages, or step counts in your re
 
     reply_content = response.choices[0].message.content
     
-    # Handle command processing
-    if user_content.lower() == "draft":
-        reply_content = handle_draft_command(reply_content, history)
-    elif user_content.lower().startswith("scrapping:"):
-        notes = user_content[10:].strip()
-        reply_content = handle_scrapping_command(reply_content, notes, history)
-    elif user_content.lower() == "support":
-        reply_content = handle_support_command(reply_content, history)
-    elif user_content.lower() == "kickstart":
-        reply_content = handle_kickstart_command(reply_content, history, session_data)
-    elif user_content.lower() == "who do i contact?":
-        reply_content = handle_contact_command(reply_content, history, session_data)
+    # Handle command processing (disabled in KYC phase)
+    current_phase = session_data.get("current_phase", "") if session_data else ""
+    
+    if current_phase != "KYC":
+        # Only process commands outside of KYC phase
+        if user_content.lower() == "draft":
+            reply_content = handle_draft_command(reply_content, history)
+        elif user_content.lower().startswith("scrapping:"):
+            notes = user_content[10:].strip()
+            reply_content = handle_scrapping_command(reply_content, notes, history)
+        elif user_content.lower() == "support":
+            reply_content = handle_support_command(reply_content, history)
+        elif user_content.lower() == "kickstart":
+            reply_content = handle_kickstart_command(reply_content, history, session_data)
+        elif user_content.lower() == "who do i contact?":
+            reply_content = handle_contact_command(reply_content, history, session_data)
     
     # Inject missing tag if AI forgot to include one
     reply_content = inject_missing_tag(reply_content, session_data)
@@ -1131,31 +1484,23 @@ Here's what I've captured so far: [summary]. Does this look accurate to you? If 
     response_time = end_time - start_time
     print(f"⏱️ Angel reply generated in {response_time:.2f} seconds")
     
-    # Check if we need to trigger KYC completion after acknowledgment
+    # Check if user just answered the final KYC question
     if session_data and session_data.get("current_phase") == "KYC":
         current_tag = session_data.get("asked_q", "")
         if current_tag and current_tag.startswith("KYC."):
             try:
                 question_num = int(current_tag.split(".")[1])
-                # Check if this is an acknowledgment of the final question (19)
-                # and we haven't already triggered completion
+                # Check if user just answered the final question (19) with "proactive" or "non-proactive" response
                 if (question_num == 19 and 
                     not current_tag.endswith("_ACK") and
-                    ("proactive" in reply_content.lower() or 
-                     "excellent" in reply_content.lower() or
-                     "fantastic" in reply_content.lower() or
-                     "congratulations" in reply_content.lower())):
+                    ("proactive" in user_content.lower() or 
+                     user_content.lower().strip() in ["yes", "y", "yeah", "yep", "sure", "ok", "okay", "absolutely", "definitely", "no", "n", "nope", "NO", "NOPE" , "proactive" , "Proactive" , "excellent" , "Excellent" , "fantastic" , "Fantastic" , "congratulations" , "Congratulations"] or
+                     "yes" in user_content.lower() or
+                     "no" in user_content.lower())):
                     
-                    print(f"🎯 KYC acknowledgment detected for question {question_num}")
-                    # Mark that we've shown the acknowledgment using asked_q
-                    return {
-                        "reply": reply_content,
-                        "web_search_status": web_search_status,
-                        "immediate_response": immediate_response,
-                        "patch_session": {
-                            "asked_q": current_tag + "_ACK"
-                        }
-                    }
+                    print(f"🎯 User answered final KYC question (19) - triggering completion immediately")
+                    # Trigger completion immediately after acknowledgment
+                    return await handle_kyc_completion(session_data, history)
             except (ValueError, IndexError):
                 pass
     
@@ -1166,24 +1511,67 @@ Here's what I've captured so far: [summary]. Does this look accurate to you? If 
     }
 
 def handle_draft_command(reply, history):
-    """Handle the Draft command"""
+    """Handle the Draft command with comprehensive response generation"""
     # Extract context from conversation history
     context_summary = extract_conversation_context(history)
+    business_context = extract_business_context_from_history(history)
     
-    draft_response = f"Here's a draft based on what you've shared:\n\n{reply}\n\n"
-    draft_response += "Would you like to:\n• **Accept** this response and move forward\n• **Modify** - provide feedback to refine this answer"
+    draft_response = f"Here's a comprehensive draft based on what you've shared:\n\n{reply}\n\n"
+    
+    # ADD COMPREHENSIVE DRAFT CAPABILITIES
+    draft_response += "**📝 I Can Create Complete Responses For You:**\n"
+    draft_response += "As Angel learns more about your business, I can infer answers and create comprehensive responses. I can:\n"
+    draft_response += "• **Complete Business Plans** - Generate full sections based on your context\n"
+    draft_response += "• **Market Analysis** - Create detailed competitor and market analysis\n"
+    draft_response += "• **Financial Projections** - Develop realistic financial models\n"
+    draft_response += "• **Marketing Strategies** - Design comprehensive marketing plans\n"
+    draft_response += "• **Operational Plans** - Create detailed operational procedures\n\n"
+    
+    draft_response += "**Draft Options:**\n"
+    draft_response += "• **Complete Answer** - I'll create a full, comprehensive response\n"
+    draft_response += "• **Research + Draft** - I'll research the topic and create a detailed response\n"
+    draft_response += "• **Template-Based** - I'll use proven templates tailored to your business\n"
+    draft_response += "• **Industry-Specific** - I'll create content specific to your industry\n\n"
+    
+    draft_response += "**What would you like me to draft?**\n"
+    draft_response += "Tell me what specific content you'd like me to create, and I'll generate a comprehensive, professional response tailored to your business context.\n\n"
+    
+    draft_response += "**Ready to Move Forward?**\n"
+    draft_response += "Would you like to:\n• **Accept** this response and move forward\n• **Draft More** - Tell me what to create for you\n• **Modify** - provide feedback to refine this answer"
     
     return draft_response
 
 def handle_scrapping_command(reply, notes, history):
-    """Handle the Scrapping command"""
-    refined_response = f"Here's a refined version of your thoughts:\n\n{reply}\n\n"
-    refined_response += "Would you like to:\n• **Accept** this response and move forward\n• **Modify** - provide feedback to refine this answer"
+    """Handle the Scrapping command with web search research"""
+    # Extract business context from history for targeted research
+    business_context = extract_business_context_from_history(history)
     
-    return refined_response
+    scrapping_response = f"Here's a refined version of your thoughts:\n\n{reply}\n\n"
+    
+    # ADD WEB SEARCH RESEARCH CAPABILITY
+    scrapping_response += "**🔍 Let me research this for you:**\n"
+    scrapping_response += "I can conduct web search research to help refine and validate your ideas. This includes:\n"
+    scrapping_response += "• **Market Research** - Current trends and opportunities in your field\n"
+    scrapping_response += "• **Competitor Analysis** - How others are approaching similar challenges\n"
+    scrapping_response += "• **Best Practices** - Proven strategies and successful approaches\n"
+    scrapping_response += "• **Industry Insights** - Expert opinions and market data\n\n"
+    
+    scrapping_response += "**Research Options:**\n"
+    scrapping_response += "• **Research Market** - Get current market data and trends\n"
+    scrapping_response += "• **Research Competitors** - Analyze how competitors handle this\n"
+    scrapping_response += "• **Research Best Practices** - Find proven strategies\n"
+    scrapping_response += "• **Research Industry** - Get expert insights and data\n\n"
+    
+    scrapping_response += "**What would you like me to research?**\n"
+    scrapping_response += "Tell me what specific aspect you'd like me to research, and I'll conduct web search to provide you with current, actionable insights to refine your approach.\n\n"
+    
+    scrapping_response += "**Ready to Move Forward?**\n"
+    scrapping_response += "Would you like to:\n• **Accept** this response and move forward\n• **Research** - Tell me what to research for you\n• **Modify** - provide feedback to refine this answer"
+    
+    return scrapping_response
 
 def handle_support_command(reply, history):
-    """Handle the Support command"""
+    """Handle the Support command with proactive research assistance"""
     support_response = f"Let's work through this together with some deeper context:\n\n{reply}\n\n"
     
     # Add comprehensive guidance instead of leaving cliffhangers
@@ -1194,14 +1582,29 @@ def handle_support_command(reply, history):
     support_response += "• What are your biggest concerns or uncertainties?\n"
     support_response += "• How will you measure success?\n\n"
     
+    # PROACTIVE RESEARCH OFFER
+    support_response += "**🔍 I Can Help You Research This:**\n"
+    support_response += "Instead of leaving you to figure this out alone, I can proactively research this topic for you. I have access to:\n"
+    support_response += "• **Competitor Analysis** - Research your main competitors and market positioning\n"
+    support_response += "• **Industry Insights** - Current trends, market size, and growth opportunities\n"
+    support_response += "• **Best Practices** - Proven strategies from successful businesses in your field\n"
+    support_response += "• **Local Market Data** - Location-specific information and opportunities\n"
+    support_response += "• **Regulatory Requirements** - Compliance and legal considerations\n\n"
+    
+    support_response += "**Would you like me to:**\n"
+    support_response += "• **Research Competitors** - Find and analyze your main competitors\n"
+    support_response += "• **Research Market** - Get industry insights and market data\n"
+    support_response += "• **Research Best Practices** - Find proven strategies for your business type\n"
+    support_response += "• **Research Local Opportunities** - Location-specific market analysis\n\n"
+    
     support_response += "**Next Steps:**\n"
-    support_response += "• Take time to think through these questions\n"
-    support_response += "• Consider your unique situation and constraints\n"
-    support_response += "• Feel free to ask for clarification on any specific aspect\n"
-    support_response += "• You can also use 'Draft' to have me create a comprehensive response based on your previous answers\n\n"
+    support_response += "• Tell me what specific research would be most helpful\n"
+    support_response += "• I'll conduct comprehensive research and provide actionable insights\n"
+    support_response += "• We can then use this research to answer your question with confidence\n"
+    support_response += "• You can also use 'Draft' to have me create a comprehensive response based on research\n\n"
     
     support_response += "**Ready to Move Forward?**\n"
-    support_response += "Do you want me to use this information to answer this question? If you want to use portions of this information, or see additional info, just let me know and we'll work through it together."
+    support_response += "What type of research would be most valuable for answering this question? I'm here to do the heavy lifting so you can focus on building your business."
     
     return support_response
 
@@ -1231,6 +1634,150 @@ def extract_conversation_context(history):
             context.append(msg["content"][:100] + "..." if len(msg["content"]) > 100 else msg["content"])
     
     return " | ".join(context)
+
+def extract_business_context_from_history(history):
+    """Extract business context information from conversation history"""
+    business_context = {
+        "business_name": "",
+        "industry": "",
+        "location": "",
+        "business_type": "",
+        "target_market": "",
+        "business_idea": ""
+    }
+    
+    # Extract from recent messages
+    recent_messages = history[-10:] if len(history) > 10 else history
+    
+    for msg in recent_messages:
+        if msg["role"] == "user":
+            content = msg["content"].lower()
+            
+            # Extract business name patterns
+            if "business name" in content or "company name" in content:
+                # Look for the actual name in the message
+                lines = msg["content"].split('\n')
+                for line in lines:
+                    if ":" in line and len(line.split(':')[1].strip()) > 2:
+                        business_context["business_name"] = line.split(':')[1].strip()
+                        break
+            
+            # Extract industry information
+            if "industry" in content or "sector" in content:
+                lines = msg["content"].split('\n')
+                for line in lines:
+                    if ":" in line and len(line.split(':')[1].strip()) > 2:
+                        business_context["industry"] = line.split(':')[1].strip()
+                        break
+            
+            # Extract location information
+            if "location" in content or "city" in content or "state" in content:
+                lines = msg["content"].split('\n')
+                for line in lines:
+                    if ":" in line and len(line.split(':')[1].strip()) > 2:
+                        business_context["location"] = line.split(':')[1].strip()
+                        break
+            
+            # Extract business type
+            if "business type" in content or "type of business" in content:
+                lines = msg["content"].split('\n')
+                for line in lines:
+                    if ":" in line and len(line.split(':')[1].strip()) > 2:
+                        business_context["business_type"] = line.split(':')[1].strip()
+                        break
+    
+    return business_context
+
+async def handle_competitor_research_request(user_input, business_context, history):
+    """Handle specific requests for competitor research"""
+    
+    # Extract business information for targeted research
+    industry = business_context.get("industry", "")
+    location = business_context.get("location", "")
+    business_name = business_context.get("business_name", "")
+    business_type = business_context.get("business_type", "")
+    
+    # Create targeted research queries
+    research_queries = []
+    
+    if industry:
+        research_queries.append(f"main competitors in {industry} industry")
+        research_queries.append(f"top companies in {industry} market")
+        research_queries.append(f"{industry} industry leaders and market share")
+    
+    if location and industry:
+        research_queries.append(f"{industry} companies in {location}")
+        research_queries.append(f"local {industry} competitors in {location}")
+    
+    if business_type:
+        research_queries.append(f"{business_type} business competitors")
+        research_queries.append(f"successful {business_type} companies")
+    
+    # Conduct web search for competitor research
+    competitor_research_results = []
+    
+    for query in research_queries[:3]:  # Limit to 3 queries for efficiency
+        try:
+            search_result = await conduct_web_search(query)
+            if search_result and "unable to conduct web research" not in search_result:
+                competitor_research_results.append({
+                    "query": query,
+                    "result": search_result
+                })
+        except Exception as e:
+            print(f"Error conducting competitor research for query '{query}': {e}")
+    
+    # Generate comprehensive competitor analysis
+    if competitor_research_results:
+        analysis_prompt = f"""
+        Based on the following research results, provide a comprehensive competitor analysis for a business in the {industry} industry:
+        
+        Business Context:
+        - Industry: {industry}
+        - Location: {location}
+        - Business Type: {business_type}
+        - Business Name: {business_name}
+        
+        Research Results:
+        {chr(10).join([f"Query: {r['query']}\nResult: {r['result']}\n" for r in competitor_research_results])}
+        
+        Please provide:
+        1. Main competitors identified
+        2. Market positioning analysis
+        3. Competitive advantages and weaknesses
+        4. Market opportunities
+        5. Strategic recommendations
+        
+        Make this analysis actionable and specific to the business context.
+        """
+        
+        try:
+            response = await client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": analysis_prompt}],
+                temperature=0.7,
+                max_tokens=1500
+            )
+            
+            return {
+                "success": True,
+                "analysis": response.choices[0].message.content,
+                "research_sources": len(competitor_research_results),
+                "queries_used": [r["query"] for r in competitor_research_results]
+            }
+        except Exception as e:
+            print(f"Error generating competitor analysis: {e}")
+            return {
+                "success": False,
+                "error": "Failed to generate competitor analysis",
+                "research_sources": len(competitor_research_results)
+            }
+    else:
+        return {
+            "success": False,
+            "error": "Unable to conduct competitor research at this time",
+            "research_sources": 0
+        }
 
 async def generate_business_plan_artifact(session_data, conversation_history):
     """Generate comprehensive business plan artifact with deep research"""

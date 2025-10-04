@@ -24,6 +24,7 @@ import RoadmapDisplay from "../../components/RoadmapDisplay";
 import RoadmapToImplementationTransition from "../../components/RoadmapToImplementationTransition";
 import Implementation from "../Implementation";
 import RoadmapEditModal from "../../components/RoadmapEditModal";
+import BusinessQuestionFormatter from "../../components/BusinessQuestionFormatter";
 
 interface ConversationPair {
   question: string;
@@ -460,6 +461,30 @@ export default function ChatPage() {
     return null;
   };
 
+  // Dedicated function to clean up Angel introduction text
+  const cleanAngelIntroductionText = (text: string): string => {
+    if (!text.toLowerCase().includes('welcome to founderport')) {
+      return text;
+    }
+    
+    let cleaned = text;
+    
+    // Aggressively clean up spacing around the journey question
+    cleaned = cleaned.replace(/\n{3,}/g, "\n\n"); // Replace 3+ newlines with 2
+    cleaned = cleaned.replace(/\n\s*\n\s*\n/g, "\n\n"); // Remove empty lines between content
+    
+    // Multiple patterns to catch various spacing scenarios around the journey question
+    cleaned = cleaned.replace(/\s*\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*/g, "\n\nAre you ready to begin your journey?\n\n");
+    cleaned = cleaned.replace(/\n\s*\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*\n/g, "\n\nAre you ready to begin your journey?\n\n");
+    cleaned = cleaned.replace(/\n{2,}\s*Are you ready to begin your journey\?\s*\n{2,}/g, "\n\nAre you ready to begin your journey?\n\n");
+    cleaned = cleaned.replace(/\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*\n/g, "\n\nAre you ready to begin your journey?\n\n");
+    
+    // Clean up spacing around the questionnaire introduction
+    cleaned = cleaned.replace(/\n\s*\n\s*Let's start with the Getting to Know You questionnaire/g, "\n\nLet's start with the Getting to Know You questionnaire");
+    
+    return cleaned;
+  };
+
   const formatAngelMessage = (text: string | any): string => {
     // Ensure we have a string to work with
     if (typeof text !== 'string') {
@@ -469,6 +494,19 @@ export default function ChatPage() {
     
     // Remove machine tags
     let formatted = text.replace(/\[\[Q:[A-Z_]+\.\d{2}]]\s*/g, "");
+    
+    // Special handling for Angel introduction text
+    if (formatted.toLowerCase().includes('welcome to founderport') && formatted.toLowerCase().includes('are you ready to begin your journey')) {
+      // Aggressively clean up spacing around the journey question
+      formatted = formatted.replace(/\n{3,}/g, "\n\n"); // Replace 3+ newlines with 2
+      formatted = formatted.replace(/\n\s*\n\s*\n/g, "\n\n"); // Remove empty lines between content
+      formatted = formatted.replace(/\s*\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*/g, "\n\nAre you ready to begin your journey?\n\n");
+      
+      // Additional specific cleanup for the journey question - be very aggressive
+      formatted = formatted.replace(/\n\s*\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*\n/g, "\n\nAre you ready to begin your journey?\n\n");
+      formatted = formatted.replace(/\n{2,}\s*Are you ready to begin your journey\?\s*\n{2,}/g, "\n\nAre you ready to begin your journey?\n\n");
+      formatted = formatted.replace(/\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*\n/g, "\n\nAre you ready to begin your journey?\n\n");
+    }
 
     // Remove ALL asterisks (single, double, triple, etc.)
     formatted = formatted.replace(/\*+/g, "");
@@ -489,12 +527,26 @@ export default function ChatPage() {
     // Remove any remaining standalone formatting symbols
     formatted = formatted.replace(/^[*#\-–—•]+\s*$/gm, "");
 
-    // Clean up excessive whitespace
+    // Clean up excessive whitespace - be more aggressive with line breaks
     formatted = formatted.replace(/\n{3,}/g, "\n\n");
+    formatted = formatted.replace(/\n\s*\n\s*\n/g, "\n\n"); // Remove empty lines between content
     formatted = formatted.replace(/\s{3,}/g, " ");
+    
+    // Remove excessive spacing around specific phrases - be more aggressive
+    formatted = formatted.replace(/\n{3,}\s*Are you ready to begin your journey\?\s*\n{3,}/g, "\n\nAre you ready to begin your journey?\n\n");
+    formatted = formatted.replace(/\n\s*\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*\n/g, "\n\nAre you ready to begin your journey?\n\n");
+    formatted = formatted.replace(/\n\s*\n\s*Let's start with the Getting to Know You questionnaire/g, "\n\nLet's start with the Getting to Know You questionnaire");
+    
+    // Additional cleanup for Angel introduction text
+    if (formatted.toLowerCase().includes('welcome to founderport')) {
+      // Clean up excessive spacing in the introduction
+      formatted = formatted.replace(/\n\s*\n\s*\n/g, "\n\n"); // Remove triple+ line breaks
+      formatted = formatted.replace(/\n{2,}\s*Are you ready to begin your journey\?\s*\n{2,}/g, "\n\nAre you ready to begin your journey?\n\n");
+    }
 
     return formatted.trim();
   };
+
 
   // Format questions with bold styling and spacing
   const formatQuestionText = (text: string): string => {
@@ -504,6 +556,19 @@ export default function ChatPage() {
 
     // Remove machine tags
     let formatted = text.replace(/\[\[Q:[A-Z_]+\.\d{2}]]\s*/g, "");
+    
+    // Special handling for Angel introduction text
+    if (formatted.toLowerCase().includes('welcome to founderport') && formatted.toLowerCase().includes('are you ready to begin your journey')) {
+      // Aggressively clean up spacing around the journey question
+      formatted = formatted.replace(/\n{3,}/g, "\n\n"); // Replace 3+ newlines with 2
+      formatted = formatted.replace(/\n\s*\n\s*\n/g, "\n\n"); // Remove empty lines between content
+      formatted = formatted.replace(/\s*\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*/g, "\n\nAre you ready to begin your journey?\n\n");
+      
+      // Additional specific cleanup for the journey question - be very aggressive
+      formatted = formatted.replace(/\n\s*\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*\n/g, "\n\nAre you ready to begin your journey?\n\n");
+      formatted = formatted.replace(/\n{2,}\s*Are you ready to begin your journey\?\s*\n{2,}/g, "\n\nAre you ready to begin your journey?\n\n");
+      formatted = formatted.replace(/\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*\n/g, "\n\nAre you ready to begin your journey?\n\n");
+    }
 
     // Remove ALL asterisks (single, double, triple, etc.)
     formatted = formatted.replace(/\*+/g, "");
@@ -524,9 +589,22 @@ export default function ChatPage() {
     // Remove any remaining standalone formatting symbols
     formatted = formatted.replace(/^[*#\-–—•]+\s*$/gm, "");
 
-    // Clean up excessive whitespace
+    // Clean up excessive whitespace - be more aggressive with line breaks
     formatted = formatted.replace(/\n{3,}/g, "\n\n");
+    formatted = formatted.replace(/\n\s*\n\s*\n/g, "\n\n"); // Remove empty lines between content
     formatted = formatted.replace(/\s{3,}/g, " ");
+    
+    // Remove excessive spacing around specific phrases - be more aggressive
+    formatted = formatted.replace(/\n{3,}\s*Are you ready to begin your journey\?\s*\n{3,}/g, "\n\nAre you ready to begin your journey?\n\n");
+    formatted = formatted.replace(/\n\s*\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n\s*\n/g, "\n\nAre you ready to begin your journey?\n\n");
+    formatted = formatted.replace(/\n\s*\n\s*Let's start with the Getting to Know You questionnaire/g, "\n\nLet's start with the Getting to Know You questionnaire");
+    
+    // Additional cleanup for Angel introduction text
+    if (formatted.toLowerCase().includes('welcome to founderport')) {
+      // Clean up excessive spacing in the introduction
+      formatted = formatted.replace(/\n\s*\n\s*\n/g, "\n\n"); // Remove triple+ line breaks
+      formatted = formatted.replace(/\n{2,}\s*Are you ready to begin your journey\?\s*\n{2,}/g, "\n\nAre you ready to begin your journey?\n\n");
+    }
 
     // Remove rating options and instructions for skills question
     if (formatted.toLowerCase().includes('how comfortable are you with these business skills')) {
@@ -554,7 +632,60 @@ export default function ChatPage() {
       formatted = formatted.replace(/💼 Fundraising\/Investor Outreach\s*/g, '');
       formatted = formatted.replace(/Super Easy Response:\s*Just type:.*?\n/g, '');
       formatted = formatted.replace(/If yes: Can you describe it briefly\?/g, '');
+      
+      // Remove the rating circles pattern
+      formatted = formatted.replace(/○\s*○\s*○\s*○\s*○\s*/g, '');
+      formatted = formatted.replace(/\n\s*○\s*○\s*○\s*○\s*○\s*\n/g, '\n');
+      
+      // Remove text-based rating displays like "○ Business Planning: ○ Marketing: ○ Financial Management: ○ Operations: ○ Leadership:"
+      formatted = formatted.replace(/○\s*Business Planning:\s*○\s*Marketing:\s*○\s*Financial Management:\s*○\s*Operations:\s*○\s*Leadership:/g, '');
+      formatted = formatted.replace(/○\s*[^:]+:\s*(○\s*[^:]+:\s*)*○\s*[^:]+:/g, '');
+      formatted = formatted.replace(/○\s*[A-Za-z\s]+:\s*/g, '');
+      
+      // Remove numbered list patterns like "1. Business planning 2. Financial management..."
+      formatted = formatted.replace(/\d+\.\s*[A-Za-z\s]+\s*2\.\s*[A-Za-z\s]+\s*3\.\s*[A-Za-z\s]+\s*4\.\s*[A-Za-z\s]+\s*5\.\s*[A-Za-z\s]+/g, '');
+      formatted = formatted.replace(/\d+\.\s*[A-Za-z\s]+/g, '');
+      
+      // Remove specific patterns like "1. Business planning\n2. Financial management\n3. Marketing strategies\n4. Sales techniques\n5. Operations management"
+      formatted = formatted.replace(/1\.\s*Business planning\s*2\.\s*Financial management\s*3\.\s*Marketing strategies\s*4\.\s*Sales techniques\s*5\.\s*Operations management/g, '');
+      formatted = formatted.replace(/1\.\s*Business planning\s*\n\s*2\.\s*Financial management\s*\n\s*3\.\s*Marketing strategies\s*\n\s*4\.\s*Sales techniques\s*\n\s*5\.\s*Operations management/g, '');
+      
+      // Remove standalone circles pattern "○ ○ ○ ○ ○"
+      formatted = formatted.replace(/○\s*○\s*○\s*○\s*○/g, '');
     }
+
+    // Remove multiple choice options for all questions
+    // Remove communication style options
+    if (formatted.toLowerCase().includes('what is your preferred communication style') || 
+        formatted.toLowerCase().includes('choose the style that feels most natural')) {
+      formatted = formatted.replace(/Choose the style that feels most natural to you:.*?Simply type your choice:.*?Structured/gs, '');
+      formatted = formatted.replace(/🟢 Conversational Q&A.*?Great for comprehensive planning/gs, '');
+      formatted = formatted.replace(/🟡 Structured Form-based.*?Great for comprehensive planning/gs, '');
+      formatted = formatted.replace(/Simply type your choice:.*?Structured/gs, '');
+    }
+
+    // Remove funding options
+    if (formatted.toLowerCase().includes('are you planning to seek outside funding in the future')) {
+      formatted = formatted.replace(/Yes\s*No\s*Unsure/g, '');
+      formatted = formatted.replace(/\n\s*(Yes|No|Unsure)\s*\n/g, '\n');
+    }
+
+    // Remove Angel preference options
+    if (formatted.toLowerCase().includes('would you like angel to:')) {
+      formatted = formatted.replace(/Be more hands-on.*?Alternate based on the task/gs, '');
+      formatted = formatted.replace(/\n\s*(Be more hands-on|Be more of a mentor|Alternate based on the task)\s*\n/g, '\n');
+    }
+
+    // Remove service provider options
+    if (formatted.toLowerCase().includes('do you want to connect with service providers')) {
+      formatted = formatted.replace(/Yes\s*No\s*Later/g, '');
+      formatted = formatted.replace(/\n\s*(Yes|No|Later)\s*\n/g, '\n');
+    }
+
+    // Remove general option patterns
+    formatted = formatted.replace(/Feel free to provide your comfort level for each skill!/g, '');
+    formatted = formatted.replace(/Choose the style that feels most natural to you:/g, '');
+    formatted = formatted.replace(/Simply type your choice:/g, '');
 
     // Find and format questions (sentences ending with ?)
     // Look for question patterns in the text
@@ -634,10 +765,10 @@ export default function ChatPage() {
       /(What additional considerations or final thoughts do you have about your business plan\?)/gi
     ];
 
-    // Apply question formatting
+    // Apply question formatting with enhanced spacing using HTML breaks
     questionPatterns.forEach(pattern => {
       formatted = formatted.replace(pattern, (match) => {
-        return `\n\n**${match}**\n\n`;
+        return `\n\n<br/><br/>**${match}**<br/><br/>\n\n`;
       });
     });
 
@@ -647,7 +778,7 @@ export default function ChatPage() {
       const trimmedLine = line.trim();
       // Check if line ends with ? and is a standalone question (not part of a longer sentence)
       if (trimmedLine.endsWith('?') && trimmedLine.length < 300 && !trimmedLine.includes('**')) {
-        return `\n\n**${trimmedLine}**\n\n`;
+        return `\n\n<br/><br/>**${trimmedLine}**<br/><br/>\n\n`;
       }
       return line;
     });
@@ -660,12 +791,52 @@ export default function ChatPage() {
     finalFormatted = finalFormatted.replace(questionRegex, (match) => {
       const trimmed = match.trim();
       if (trimmed.length > 10 && trimmed.length < 300 && !trimmed.includes('**') && !trimmed.includes('💡') && !trimmed.includes('🎯')) {
-        return `\n\n**${trimmed}**\n\n`;
+        return `\n\n<br/><br/>**${trimmed}**<br/><br/>\n\n`;
       }
       return match;
     });
 
-    return finalFormatted.replace(/\n{4,}/g, '\n\n\n').trim();
+    // Final cleanup - preserve question spacing but clean up excessive whitespace elsewhere
+    let finalCleanup = finalFormatted;
+    
+    // Clean up excessive line breaks but preserve HTML breaks around questions
+    finalCleanup = finalCleanup.replace(/\n{4,}/g, '\n\n');
+    
+    // Clean up excessive whitespace in non-question areas
+    finalCleanup = finalCleanup.replace(/\s{3,}/g, ' ');
+    
+    finalCleanup = finalCleanup.trim();
+    
+    // Remove any remaining option indicators
+    finalCleanup = finalCleanup.replace(/○\s*○\s*○\s*○\s*○/g, '');
+    finalCleanup = finalCleanup.replace(/🟢\s*/g, '');
+    finalCleanup = finalCleanup.replace(/🟡\s*/g, '');
+    finalCleanup = finalCleanup.replace(/🔘\s*/g, '');
+    
+    // Remove text-based rating displays
+    finalCleanup = finalCleanup.replace(/○\s*[A-Za-z\s]+:\s*/g, '');
+    finalCleanup = finalCleanup.replace(/○\s*[^:]+:\s*(○\s*[^:]+:\s*)*/g, '');
+    
+    // Remove numbered skill lists
+    finalCleanup = finalCleanup.replace(/\d+\.\s*[A-Za-z\s]+/g, '');
+    finalCleanup = finalCleanup.replace(/\d+\.\s*[A-Za-z\s]+\s*2\.\s*[A-Za-z\s]+\s*3\.\s*[A-Za-z\s]+\s*4\.\s*[A-Za-z\s]+\s*5\.\s*[A-Za-z\s]+/g, '');
+    
+    // Remove specific skill list patterns
+    finalCleanup = finalCleanup.replace(/1\.\s*Business planning\s*2\.\s*Financial management\s*3\.\s*Marketing strategies\s*4\.\s*Sales techniques\s*5\.\s*Operations management/g, '');
+    finalCleanup = finalCleanup.replace(/1\.\s*Business planning\s*\n\s*2\.\s*Financial management\s*\n\s*3\.\s*Marketing strategies\s*\n\s*4\.\s*Sales techniques\s*\n\s*5\.\s*Operations management/g, '');
+    
+    // Remove standalone circles
+    finalCleanup = finalCleanup.replace(/○\s*○\s*○\s*○\s*○/g, '');
+    
+    // Remove standalone option words
+    finalCleanup = finalCleanup.replace(/^\s*(Yes|No|Unsure|Later|Conversational|Structured)\s*$/gm, '');
+    finalCleanup = finalCleanup.replace(/^\s*(Be more hands-on|Be more of a mentor|Alternate based on the task)\s*$/gm, '');
+    
+    // Clean up excessive whitespace again
+    finalCleanup = finalCleanup.replace(/\n{3,}/g, '\n\n');
+    finalCleanup = finalCleanup.replace(/\s{3,}/g, ' ');
+    
+    return finalCleanup.trim();
   };
 
   // Check if current question is a skills rating question
@@ -1604,9 +1775,9 @@ export default function ChatPage() {
                           <div dangerouslySetInnerHTML={{ 
                             __html: formatQuestionText(pair.question).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
                           }} />
-                        ) : (
-                          formatAngelMessage(pair.question)
-                        )}
+                ) : (
+                  <BusinessQuestionFormatter text={pair.question} />
+                )}
                       </div>
                     </div>
                   </div>
@@ -1647,7 +1818,7 @@ export default function ChatPage() {
                         </span>
                       </div>
                     )}
-                    <div className="text-gray-800 whitespace-pre-wrap text-sm">
+                    <div className="text-gray-800 whitespace-pre-wrap text-sm angel-intro-text">
                       {loading ? (
                         <div className="flex items-center gap-2">
                           <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-teal-500"></div>
@@ -1658,11 +1829,53 @@ export default function ChatPage() {
                       ) : (
                         progress.phase === "KYC" ? (
                           <div dangerouslySetInnerHTML={{ 
-                            __html: formatQuestionText(currentQuestion || "Loading...").replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+                            __html: (() => {
+                              let html = formatQuestionText(currentQuestion || "Loading...");
+                              
+                              // Apply aggressive cleanup for Angel introduction text
+                              if (html.toLowerCase().includes('welcome to founderport')) {
+                                // Clean up excessive spacing
+                                html = html.replace(/\n{3,}/g, '\n\n');
+                                html = html.replace(/\n\s*\n\s*\n/g, '\n\n');
+                                
+                                // Fix spacing around journey question
+                                html = html.replace(/\n\s*\n\s*Are you ready to begin your journey\?\s*\n\s*\n/g, '\n\nAre you ready to begin your journey?\n\n');
+                                html = html.replace(/\n{2,}\s*Are you ready to begin your journey\?\s*\n{2,}/g, '\n\nAre you ready to begin your journey?\n\n');
+                                
+                                // Fix spacing around questionnaire intro
+                                html = html.replace(/\n\s*\n\s*Let's start with the Getting to Know You questionnaire/g, '\n\nLet\'s start with the Getting to Know You questionnaire');
+                                
+                                // Fix spacing in critiquing feedback messages
+                                html = html.replace(/I need more detail from you\. That answer seems quite brief\.\s*\n\s*\n\s*\n\s*\n\s*Could you elaborate more\?/g, 'I need more detail from you. That answer seems quite brief.\n\nCould you elaborate more?');
+                                html = html.replace(/What specific aspects are you considering\s*\n\s*\n\s*\n\s*\n\s*\?/g, 'What specific aspects are you considering?');
+                                html = html.replace(/What challenges do you anticipate\s*\n\s*\n\s*\n\s*\n\s*\?/g, 'What challenges do you anticipate?');
+                              }
+                              
+                              // Convert to HTML with comprehensive spacing cleanup
+                              return html
+                                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                                .replace(/\n\n\n+/g, '\n\n') // Reduce 3+ newlines to 2
+                                .replace(/\n/g, '<br>')
+                                // Comprehensive cleanup of excessive br tags
+                                .replace(/<br><br><br><br><br><br>/g, '<br><br>') // Reduce 6 br tags to 2
+                                .replace(/<br><br><br><br><br>/g, '<br><br>') // Reduce 5 br tags to 2
+                                .replace(/<br><br><br><br>/g, '<br><br>') // Reduce 4 br tags to 2
+                                .replace(/<br><br><br>/g, '<br><br>') // Reduce 3 br tags to 2
+                                // Specific cleanup for questions
+                                .replace(/<br><br><strong>Are you ready to begin your journey\?<\/strong><br><br>/g, '<br><strong>Are you ready to begin your journey?</strong><br>')
+                                .replace(/<br><br><strong>What's your name and preferred name or nickname\?<\/strong><br><br>/g, '<br><strong>What\'s your name and preferred name or nickname?</strong>')
+                                .replace(/<br><br><br><br><strong>Are you ready to begin your journey\?<\/strong><br><br><br><br>/g, '<br><strong>Are you ready to begin your journey?</strong><br>')
+                                // Cleanup for critiquing feedback messages
+                                .replace(/I need more detail from you\. That answer seems quite brief\.<br><br><br><br><br>Could you elaborate more\?/g, 'I need more detail from you. That answer seems quite brief.<br><br>Could you elaborate more?')
+                                .replace(/What specific aspects are you considering<br><br><br><br><br>\?/g, 'What specific aspects are you considering?')
+                                .replace(/What challenges do you anticipate<br><br><br><br><br>\?/g, 'What challenges do you anticipate?')
+                                // Final cleanup - reduce any remaining excessive spacing
+                                .replace(/<br><br><br>/g, '<br><br>');
+                            })()
                           }} />
-                        ) : (
-                          formatAngelMessage(currentQuestion || "Loading...")
-                        )
+                ) : (
+                  <BusinessQuestionFormatter text={currentQuestion || "Loading..."} />
+                )
                       )}
                     </div>
                     

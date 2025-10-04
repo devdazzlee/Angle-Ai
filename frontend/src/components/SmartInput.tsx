@@ -31,10 +31,8 @@ const SmartInput: React.FC<SmartInputProps> = ({
   useEffect(() => {
     const question = currentQuestion.toLowerCase();
     
-    // Check for skill rating question
-    const isSkillRatingQuestion = question.includes('comfort') && 
-                                 question.includes('business skills') &&
-                                 question.includes('rate each skill');
+    // Check for skill rating question - make it more specific
+    const isSkillRatingQuestion = question.includes('how comfortable are you with these business skills');
     
     if (isSkillRatingQuestion) {
       setShowRatingForm(true);
