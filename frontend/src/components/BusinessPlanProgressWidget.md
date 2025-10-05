@@ -90,3 +90,4 @@ The widget is automatically integrated into the right sidebar via the `QuestionN
 - **Color Contrast**: High contrast colors for readability
 - **Screen Reader Support**: Descriptive text for progress indicators
 
+
