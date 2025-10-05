@@ -251,6 +251,14 @@ def validate_business_plan_sequence(reply, session_data=None):
                 # Log normal progression
                 elif current_q_num == last_q_num + 1:
                     print(f"✅ Normal progression: {last_q_num} → {current_q_num}")
+                
+                # Handle staying on the same question (shouldn't happen)
+                elif current_q_num == last_q_num:
+                    print(f"⚠️ WARNING: Staying on same question {current_q_num}")
+                    # Force to next question
+                    next_q = f"BUSINESS_PLAN.{last_q_num + 1:02d}"
+                    reply = re.sub(r'\[\[Q:BUSINESS_PLAN\.\d+\]\]', f'[[Q:{next_q}]]', reply)
+                    print(f"🔧 Forced progression to: {next_q}")
 
     return reply
 
@@ -1522,7 +1530,21 @@ Do NOT include question numbers, progress percentages, or step counts in your re
     # Ensure questions are properly separated
     reply_content = ensure_question_separation(reply_content, session_data)
     
-    # Validate business plan question sequence
+    # Extract question tag from reply and update session data BEFORE sequence validation
+    patch_session = {}
+    tag_match = re.search(r'\[\[Q:([A-Z_]+\.\d+)\]\]', reply_content)
+    if tag_match and session_data:
+        new_question_tag = tag_match.group(1)
+        current_asked_q = session_data.get("asked_q", "")
+        
+        # Only update if this is a new question (not the same as current)
+        if new_question_tag != current_asked_q:
+            # Update session data immediately for sequence validation
+            session_data["asked_q"] = new_question_tag
+            patch_session["asked_q"] = new_question_tag
+            print(f"🔧 Updating session asked_q: {current_asked_q} → {new_question_tag}")
+    
+    # Validate business plan question sequence (now with updated session data)
     reply_content = validate_business_plan_sequence(reply_content, session_data)
     
     # Fix verification flow to separate verification from next question
@@ -1610,17 +1632,6 @@ Here's what I've captured so far: [summary]. Does this look accurate to you? If 
             except (ValueError, IndexError):
                 pass
     
-    # Extract question tag from reply and update session data if needed
-    patch_session = {}
-    tag_match = re.search(r'\[\[Q:([A-Z_]+\.\d+)\]\]', reply_content)
-    if tag_match and session_data:
-        new_question_tag = tag_match.group(1)
-        current_asked_q = session_data.get("asked_q", "")
-        
-        # Only update if this is a new question (not the same as current)
-        if new_question_tag != current_asked_q:
-            patch_session["asked_q"] = new_question_tag
-            print(f"🔧 Updating session asked_q: {current_asked_q} → {new_question_tag}")
     
     return {
         "reply": reply_content,
