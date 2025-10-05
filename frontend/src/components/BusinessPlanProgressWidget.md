@@ -89,3 +89,4 @@ The widget is automatically integrated into the right sidebar via the `QuestionN
 - **Semantic HTML**: Proper heading structure and ARIA labels
 - **Color Contrast**: High contrast colors for readability
 - **Screen Reader Support**: Descriptive text for progress indicators
+

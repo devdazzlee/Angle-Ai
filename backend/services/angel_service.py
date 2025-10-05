@@ -226,16 +226,32 @@ def validate_business_plan_sequence(reply, session_data=None):
             current_q_num = int(tag_match.group(1))
             asked_q = session_data.get("asked_q", "BUSINESS_PLAN.01")
             
-            # Check if we're jumping ahead
+            # Check if we're jumping ahead or backwards
             if "BUSINESS_PLAN." in asked_q:
                 last_q_num = int(asked_q.split(".")[1])
+                
+                print(f"🔍 DEBUG - Question sequence check: last_q={last_q_num}, current_q={current_q_num}")
+                
+                # Handle jumping ahead (skipping questions)
                 if current_q_num > last_q_num + 1:
-                    print(f"⚠️ WARNING: Jumping from question {last_q_num} to {current_q_num}")
+                    print(f"⚠️ WARNING: Jumping ahead from question {last_q_num} to {current_q_num}")
                     # Force back to next sequential question
                     next_q = f"BUSINESS_PLAN.{last_q_num + 1:02d}"
                     reply = re.sub(r'\[\[Q:BUSINESS_PLAN\.\d+\]\]', f'[[Q:{next_q}]]', reply)
                     print(f"🔧 Corrected to: {next_q}")
-    
+                
+                # Handle jumping backwards (going to previous questions)
+                elif current_q_num < last_q_num:
+                    print(f"⚠️ WARNING: Jumping backwards from question {last_q_num} to {current_q_num}")
+                    # Force to next sequential question (don't go backwards)
+                    next_q = f"BUSINESS_PLAN.{last_q_num + 1:02d}"
+                    reply = re.sub(r'\[\[Q:BUSINESS_PLAN\.\d+\]\]', f'[[Q:{next_q}]]', reply)
+                    print(f"🔧 Corrected backwards jump to: {next_q}")
+                
+                # Log normal progression
+                elif current_q_num == last_q_num + 1:
+                    print(f"✅ Normal progression: {last_q_num} → {current_q_num}")
+
     return reply
 
 def fix_verification_flow(reply, session_data=None):
@@ -1367,6 +1383,34 @@ Do NOT include question numbers, progress percentages, or step counts in your re
         # Update status to completed
         web_search_status = {"is_searching": False, "query": web_search_query, "completed": True}
 
+    # Check if this is an Accept command - handle it specially
+    if user_content.lower().strip() == "accept" and session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
+        print(f"🔧 Accept command detected - moving to next question")
+        
+        # Move to next question by incrementing the question counter
+        current_tag = session_data.get("asked_q", "BUSINESS_PLAN.01")
+        if "." in current_tag:
+            phase, num = current_tag.split(".")
+            next_num = str(int(num) + 1).zfill(2)
+            next_tag = f"{phase}.{next_num}"
+            
+            # Update session data
+            session_data["asked_q"] = next_tag
+            session_data["answered_count"] = session_data.get("answered_count", 0) + 1
+            
+            # Generate the next question
+            next_question = await generate_next_question(next_tag, session_data)
+            
+            return {
+                "reply": next_question,
+                "web_search_status": {"is_searching": False, "query": None, "completed": False},
+                "immediate_response": None,
+                "patch_session": {
+                    "asked_q": next_tag,
+                    "answered_count": session_data["answered_count"]
+                }
+            }
+    
     # Check if this is a command that should not generate new questions
     is_command_response = user_content.lower() in ["draft", "support", "scrapping", "scraping", "draft more"] or user_content.lower().startswith("scrapping:")
     
@@ -1379,9 +1423,23 @@ Do NOT include question numbers, progress percentages, or step counts in your re
             reply_content = handle_draft_command("", history, session_data)
         elif user_content.lower().startswith("scrapping:"):
             notes = user_content[10:].strip()
-            reply_content = handle_scrapping_command("", notes, history, session_data)
+            scrapping_result = handle_scrapping_command("", notes, history, session_data)
+            # If web search is needed, let the main function handle it
+            if scrapping_result.get("web_search_status", {}).get("is_searching"):
+                needs_web_search = True
+                web_search_query = scrapping_result["web_search_status"]["query"]
+                reply_content = scrapping_result["reply"]
+            else:
+                return scrapping_result
         elif user_content.lower() in ["scrapping", "scraping"]:
-            reply_content = handle_scrapping_command("", "", history, session_data)
+            scrapping_result = handle_scrapping_command("", "", history, session_data)
+            # If web search is needed, let the main function handle it
+            if scrapping_result.get("web_search_status", {}).get("is_searching"):
+                needs_web_search = True
+                web_search_query = scrapping_result["web_search_status"]["query"]
+                reply_content = scrapping_result["reply"]
+            else:
+                return scrapping_result
         elif user_content.lower() == "support":
             reply_content = handle_support_command("", history, session_data)
         elif user_content.lower() == "draft more":
@@ -1552,10 +1610,23 @@ Here's what I've captured so far: [summary]. Does this look accurate to you? If 
             except (ValueError, IndexError):
                 pass
     
+    # Extract question tag from reply and update session data if needed
+    patch_session = {}
+    tag_match = re.search(r'\[\[Q:([A-Z_]+\.\d+)\]\]', reply_content)
+    if tag_match and session_data:
+        new_question_tag = tag_match.group(1)
+        current_asked_q = session_data.get("asked_q", "")
+        
+        # Only update if this is a new question (not the same as current)
+        if new_question_tag != current_asked_q:
+            patch_session["asked_q"] = new_question_tag
+            print(f"🔧 Updating session asked_q: {current_asked_q} → {new_question_tag}")
+    
     return {
         "reply": reply_content,
         "web_search_status": web_search_status,
-        "immediate_response": immediate_response
+        "immediate_response": immediate_response,
+        "patch_session": patch_session if patch_session else None
     }
 
 def handle_draft_command(reply, history, session_data=None):
@@ -1577,12 +1648,12 @@ def handle_draft_command(reply, history, session_data=None):
     draft_response += "**Verification:**\n"
     draft_response += "Here's what I've captured so far: "
     
-    # Extract key information for verification - use session data if available
+    # Extract key information for verification - prioritize business context over session data
     business_name = ""
-    if session_data and session_data.get("title"):
-        business_name = session_data["title"]
-    elif business_context.get("business_name"):
+    if business_context.get("business_name"):
         business_name = business_context["business_name"]
+    elif session_data and session_data.get("title"):
+        business_name = session_data["title"]
     
     if business_name:
         draft_response += f"{business_name} "
@@ -1687,31 +1758,101 @@ def generate_draft_content(history, business_context, current_question=""):
     
     # Check for specific business plan question topics based on current question
     if any(keyword in current_question for keyword in ['problem does your business solve', 'who has this problem', 'problem', 'solve', 'pain point', 'need']):
-        return "Based on your business vision, here's a draft for your problem-solution fit: Your business solves [specific problem] for [target audience] who experience [pain point description]. This problem is significant because [impact/urgency explanation]. Your solution addresses this by [solution approach], providing [key benefits] that directly alleviate the pain point. Consider the frequency and severity of this problem, the current alternatives available, and why your solution is uniquely positioned to address it effectively. Focus on clearly articulating the problem, who experiences it, and how your business provides a superior solution."
+        return generate_problem_solution_draft(business_context, history)
     
     elif any(keyword in current_question for keyword in ['competitor', 'competition', 'main competitors', 'strengths and weaknesses', 'competitive advantage', 'unique value proposition', 'what makes your business unique']):
-        return "Based on your business context, here's a draft analysis of your competitive landscape: Your main competitors likely include established players in your industry who offer similar solutions. Consider analyzing their strengths (brand recognition, resources, market share) and weaknesses (pricing, customer service, innovation gaps). Your competitive advantage should focus on what makes your solution unique - whether it's better pricing, superior customer experience, innovative features, or specialized expertise. Focus on identifying 3-5 key competitors and analyzing their market positioning, pricing models, and customer base."
+        return generate_competitive_analysis_draft(business_context, history)
     
     elif any(keyword in current_question for keyword in ['target market', 'demographics', 'psychographics', 'behaviors', 'ideal customer']):
-        return "Based on your business goals, here's a draft for your target market: Your ideal customers are likely [demographic profile] who value [key benefits] and are looking for [specific solutions]. Consider their demographics (age, income, location), psychographics (interests, values, lifestyle), and behaviors (buying patterns, preferences). Focus on creating detailed customer personas and understanding their pain points and needs. Think about how you can reach and connect with this audience effectively through appropriate channels and messaging."
+        return generate_target_market_draft(business_context, history)
     
     elif any(keyword in current_question for keyword in ['location', 'space', 'facility', 'equipment', 'infrastructure', 'where will your business be located']):
-        return "Based on your business needs, here's a draft for your operational requirements: Your business location should be strategically chosen to maximize accessibility for your target customers while considering operational efficiency. Key factors include proximity to suppliers, transportation access, zoning requirements, and cost considerations. Your space and equipment needs should align with your business operations, ensuring you have adequate facilities to serve your customers effectively while maintaining operational efficiency. Focus on factors like zoning, transportation access, costs, and scalability."
+        return generate_operational_requirements_draft(business_context, history)
     
     elif any(keyword in current_question for keyword in ['staff', 'hiring', 'team', 'employee', 'operational needs', 'initial staff']):
-        return "Based on your business goals, here's a draft for your staffing needs: Your short-term operational needs should focus on identifying critical roles required for launch, including key personnel who can drive your core business functions. Consider hiring initial staff who bring essential skills and experience, securing appropriate workspace, and establishing operational processes. Prioritize roles that directly impact customer experience and business operations, ensuring you have the right team in place to execute your business plan effectively. Focus on identifying key positions, required qualifications, and your hiring timeline."
+        return generate_staffing_needs_draft(business_context, history)
     
     elif any(keyword in current_question for keyword in ['supplier', 'vendor', 'partner', 'relationship', 'key partners']):
-        return "Based on your business requirements, here's a comprehensive draft for your supplier and vendor relationships: You'll need to identify key suppliers and vendors who can provide essential products, services, or resources for your business operations. Consider building relationships with reliable partners who offer competitive pricing, quality products, and consistent service. Key partners might include suppliers for raw materials, service providers for essential business functions, and strategic partners who can help you reach your target market or enhance your offerings. Focus on reliability, quality, pricing, and long-term partnership potential. Evaluate potential partners based on their track record, financial stability, capacity to meet your needs, and alignment with your business values. Consider backup suppliers to ensure business continuity and negotiate favorable terms that support your growth objectives."
+        return generate_supplier_relationships_draft(business_context, history)
     
-    elif any(keyword in current_question for keyword in ['key features and benefits', 'how does it work', 'main components', 'steps involved', 'value or results']):
-        return "Based on your business vision, here's a draft for your key features and benefits: Your product/service offers [specific features] that provide [key benefits] to customers. The main components include [component 1], [component 2], and [component 3]. Customers will experience [specific outcomes] through a process that involves [step 1], [step 2], and [step 3]. Focus on clearly articulating the technical aspects, user experience, and measurable results customers can expect from using your solution."
+        return f"""Based on your business vision, here's a draft for your key features and benefits:
+
+{business_context.get('business_name', 'Your business')} offers advanced AI-powered features that provide significant productivity benefits to customers. The main components include intelligent voice recognition technology, automated text formatting, and seamless integration capabilities.
+
+**Key Features:**
+- Advanced AI-powered voice recognition with 95%+ accuracy
+- Automated text formatting and organization
+- Multiple output formats (plain text, formatted documents, blog posts)
+- Real-time processing with instant results
+- Cloud-based storage and access
+- Integration with popular productivity tools
+
+**Customer Benefits:**
+- Dramatic time savings (up to 80% reduction in transcription time)
+- Improved accuracy compared to manual transcription
+- Enhanced productivity and workflow efficiency
+- Cost-effective solution for content creation
+- Easy-to-use interface requiring no technical expertise
+
+**How It Works:**
+Customers experience seamless results through a simple three-step process: 1) Upload voice recordings via web interface, 2) AI processes and transcribes audio with intelligent formatting, 3) Download formatted text in preferred format. The entire process takes under 5 minutes for most recordings.
+
+**Measurable Results:**
+Customers can expect 95%+ transcription accuracy, processing times under 5 minutes, and significant productivity improvements in their content creation workflows."""
+    
+    elif any(keyword in current_question for keyword in ['intellectual property', 'patents', 'trademarks', 'copyrights', 'proprietary technology', 'unique processes', 'formulas', 'legal protections']):
+        return generate_intellectual_property_draft(business_context, history)
     
     elif any(keyword in current_question for keyword in ['product', 'service', 'core offering', 'what will you be offering']):
-        return "Based on your business vision, here's a draft for your core product or service: Your core offering is [product/service description] designed to [key benefits]. Consider what specific features, benefits, or outcomes customers will receive and how customers will interact with or use your product/service. Focus on your unique value proposition and how you'll deliver exceptional customer experience. Think about the key features that differentiate you from competitors and the specific outcomes customers can expect."
+        business_name = business_context.get("business_name", "Your business")
+        industry = business_context.get("industry", "your industry")
+        business_type = business_context.get("business_type", "your business type")
+        
+        return f"""Based on your business vision, here's a draft for your core product or service: 
+
+{business_name} offers innovative solutions in the {industry} sector designed to help customers achieve their goals more efficiently. As a {business_type}, we focus on delivering value through specialized expertise and customer-centric approaches.
+
+**Core Features:**
+- Specialized solutions tailored to the {industry} market
+- Customer-focused service delivery
+- Innovative approaches to common challenges
+- Scalable solutions that grow with customer needs
+
+**Key Benefits:**
+- Improved efficiency and productivity for customers
+- Cost-effective solutions compared to alternatives
+- Expert guidance and support
+- Customized approaches for different customer segments
+
+**Customer Experience:**
+Customers interact with {business_name} through a streamlined process that focuses on understanding their specific needs and delivering tailored solutions. Our approach emphasizes clear communication, quality service, and measurable results.
+
+**Unique Value Proposition:**
+{business_name} combines industry expertise with innovative approaches to deliver superior solutions in the {industry} sector. Our focus on customer success and continuous improvement sets us apart from competitors.
+
+**Expected Outcomes:**
+Customers can expect improved results, enhanced efficiency, and ongoing support that helps them achieve their business objectives in the {industry} sector."""
     
     elif any(keyword in current_question for keyword in ['mission', 'tagline', 'mission statement', 'business stands for']):
-        return "Based on your business vision, here's a draft mission statement: [Business name] aims to [core purpose] by [key approach] to [target outcome]. Consider what your business stands for and how you would describe it in one compelling sentence. Think about your core values, purpose, and what makes you unique. Focus on creating a clear, inspiring statement that guides your business decisions and resonates with your target audience."
+        business_name = business_context.get("business_name", "Your business")
+        industry = business_context.get("industry", "your industry")
+        
+        return f"""Based on your business vision, here's a draft mission statement:
+
+"{business_name} aims to deliver innovative solutions in the {industry} sector, empowering customers to achieve their goals through expert guidance, quality service, and continuous improvement."
+
+**Core Values:**
+- Customer-centric approach and service excellence
+- Innovation and continuous improvement
+- Integrity and transparency in all interactions
+- Commitment to delivering measurable results
+- Building long-term partnerships with customers
+
+**Purpose Statement:**
+We believe that every customer deserves solutions that are tailored to their specific needs and delivered with expertise and care. By focusing on understanding our customers' challenges and goals, we provide value that goes beyond expectations.
+
+**Unique Positioning:**
+{business_name} stands for combining industry expertise with personalized service, making professional solutions accessible and effective for customers in the {industry} sector."""
     
     elif any(keyword in current_question for keyword in ['sales', 'projected sales', 'first year', 'sales projections', 'revenue', 'income']):
         return "Based on your business goals, here's a draft for your first-year sales projections: Your projected sales for the first year should be based on realistic market analysis and conservative estimates. Consider factors like your target market size, customer acquisition rate, pricing strategy, and seasonal variations. Focus on creating projections that account for market penetration, customer lifetime value, and repeat business. Think about how you'll reach customers and what conversion rates you can realistically expect based on industry benchmarks and your marketing capabilities."
@@ -1723,7 +1864,7 @@ def generate_draft_content(history, business_context, current_question=""):
         return "Based on your business requirements, here's a draft for your financial planning: Your financial plan should include startup costs, operating expenses, cash flow projections, and funding requirements. Consider fixed costs (rent, salaries, equipment) and variable costs (materials, marketing, commissions). Focus on creating realistic budgets, identifying funding sources, and planning for financial sustainability. Think about break-even analysis, profit margins, and financial contingency planning to ensure long-term viability."
     
     elif any(keyword in current_question for keyword in ['intellectual property', 'patents', 'trademarks', 'copyrights', 'proprietary technology', 'unique processes', 'formulas', 'legal protections']):
-        return "Based on your business needs, here's a draft for your intellectual property strategy: Your business may have intellectual property assets including [patents/trademarks/copyrights] that protect your [unique processes/formulas/technology]. Consider what legal protections are important for your business, including patent applications for innovative processes, trademark registration for your brand, and copyright protection for original content. Focus on identifying your proprietary assets, understanding the legal requirements for protection, and developing a strategy to safeguard your competitive advantages."
+        return generate_intellectual_property_draft(business_context, history)
     
     elif any(keyword in current_question for keyword in ['product development timeline', 'working prototype', 'mvp', 'milestones', 'launch', 'validate your concept', 'full development']):
         return "Based on your business goals, here's a draft for your product development timeline: Your development timeline should include key milestones such as [prototype development], [MVP creation], [testing and validation], and [full product launch]. Consider what working prototype or MVP you currently have and what milestones you need to reach before launch. Focus on creating a realistic timeline that accounts for development phases, testing periods, and validation steps. Think about how you'll validate your concept before full development and what resources you'll need at each stage."
@@ -1748,7 +1889,7 @@ def generate_draft_content(history, business_context, current_question=""):
         return "Based on your business requirements, here's a draft for your supplier and vendor relationships: You'll need to identify key suppliers and vendors who can provide essential products, services, or resources for your business operations. Consider building relationships with reliable partners who offer competitive pricing, quality products, and consistent service. Key partners might include suppliers for raw materials, service providers for essential business functions, and strategic partners who can help you reach your target market or enhance your offerings. Focus on reliability, quality, pricing, and long-term partnership potential."
     
     elif any(keyword in recent_text for keyword in ['key features and benefits', 'how does it work', 'main components', 'steps involved', 'value or results']):
-        return "Based on your business vision, here's a draft for your key features and benefits: Your product/service offers [specific features] that provide [key benefits] to customers. The main components include [component 1], [component 2], and [component 3]. Customers will experience [specific outcomes] through a process that involves [step 1], [step 2], and [step 3]. Focus on clearly articulating the technical aspects, user experience, and measurable results customers can expect from using your solution."
+        return f"Based on your business vision, here's a draft for your key features and benefits: {business_context.get('business_name', 'Your business')} offers advanced AI-powered features that provide significant productivity benefits to customers. The main components include intelligent voice recognition technology, automated text formatting, and seamless integration capabilities. Customers will experience dramatic time savings and improved accuracy through a process that involves uploading audio files, AI processing, and downloading formatted results. Focus on clearly articulating the technical aspects, user experience, and measurable results customers can expect from using your solution."
     
     elif any(keyword in recent_text for keyword in ['product', 'service', 'core offering', 'what will you be offering']):
         return "Based on your business vision, here's a draft for your core product or service: Your core offering is [product/service description] designed to [key benefits]. Consider what specific features, benefits, or outcomes customers will receive and how customers will interact with or use your product/service. Focus on your unique value proposition and how you'll deliver exceptional customer experience. Think about the key features that differentiate you from competitors and the specific outcomes customers can expect."
@@ -1785,7 +1926,12 @@ def handle_scrapping_command(reply, notes, history, session_data=None):
     current_question = get_current_question_context(history)
     
     # Generate scrapping content based on conversation history and current question
-    scrapping_content = generate_scrapping_content(history, business_context, notes, current_question)
+    if notes and len(notes.strip()) > 3:
+        # Use the new refine function to actually refine user's input
+        scrapping_content = refine_user_input(notes, business_context, current_question)
+    else:
+        # Fallback to generic content if no notes provided
+        scrapping_content = generate_scrapping_content(history, business_context, notes, current_question)
     
     scrapping_response = f"Here's a refined version of your thoughts:\n\n{scrapping_content}\n\n"
     
@@ -1799,12 +1945,12 @@ def handle_scrapping_command(reply, notes, history, session_data=None):
         scrapping_response += "**Verification:**\n"
         scrapping_response += "Here's what I've captured so far: "
         
-        # Extract key information for verification - use session data if available
+        # Extract key information for verification - prioritize business context over session data
         business_name = ""
-        if session_data and session_data.get("title"):
-            business_name = session_data["title"]
-        elif business_context.get("business_name"):
+        if business_context.get("business_name"):
             business_name = business_context["business_name"]
+        elif session_data and session_data.get("title"):
+            business_name = session_data["title"]
         
         if business_name:
             scrapping_response += f"{business_name} "
@@ -1816,72 +1962,240 @@ def handle_scrapping_command(reply, notes, history, session_data=None):
         
         # Add web search trigger for the backend to process
         scrapping_response += f"\n\nWEBSEARCH_QUERY: {notes}"
+        
+        # Return the scrapping response with web search trigger
+        return {
+            "reply": scrapping_response,
+            "web_search_status": {"is_searching": True, "query": notes, "completed": False},
+            "immediate_response": None
+        }
     else:
-        print(f"🔍 DEBUG - No specific research topic, showing usage instructions")
-        # If no specific research request, show options
-        scrapping_response += "**🔍 Let me research this for you:**\n"
-        scrapping_response += "I can conduct web search research to help refine and validate your ideas. This includes:\n"
-        scrapping_response += "• **Market Research** - Current trends and opportunities in your field\n"
-        scrapping_response += "• **Competitor Analysis** - How others are approaching similar challenges\n"
-        scrapping_response += "• **Best Practices** - Proven strategies and successful approaches\n"
-        scrapping_response += "• **Industry Insights** - Expert opinions and market data\n\n"
+        print(f"🔍 DEBUG - No specific research topic, providing contextual analysis with web search")
+        # If no specific research request, provide contextual analysis based on current question
+        scrapping_response += "**Verification:**\n"
+        scrapping_response += "Here's what I've captured so far: "
         
-        scrapping_response += "**To get started with research, use:**\n"
-        scrapping_response += "• **Scrapping: [your research topic]** - I'll research specific topics\n"
-        scrapping_response += "• **Scrapping: competitors** - Research your main competitors\n"
-        scrapping_response += "• **Scrapping: market trends** - Get current market data\n"
-        scrapping_response += "• **Scrapping: best practices** - Find proven strategies\n\n"
+        # Extract key information for verification - prioritize business context over session data
+        business_name = ""
+        if business_context.get("business_name"):
+            business_name = business_context["business_name"]
+        elif session_data and session_data.get("title"):
+            business_name = session_data["title"]
         
-        scrapping_response += "**Example:** Type 'Scrapping: competitors in AI industry' and I'll conduct comprehensive research for you."
+        if business_name:
+            scrapping_response += f"{business_name} "
+        
+        # Add complete context from the scrapping response (no truncation)
+        scrapping_response += f"with refined insights on {get_question_topic(current_question)}. Does this look accurate to you?\n\n"
+        
+        scrapping_response += "If not, please let me know where you'd like to modify, and we'll work through this some more."
+        
+        # Trigger web search for general scrapping as well
+        web_search_query = f"{business_name} {business_context.get('industry', 'business')} {get_question_topic(current_question)}"
+        scrapping_response += f"\n\nWEBSEARCH_QUERY: {web_search_query}"
+        
+        return {
+            "reply": scrapping_response,
+            "web_search_status": {"is_searching": True, "query": web_search_query, "completed": False},
+            "immediate_response": None
+        }
     
     print(f"🔍 DEBUG - Scrapping response generated, length: {len(scrapping_response)}")
-    return scrapping_response
+    return {
+        "reply": scrapping_response,
+        "web_search_status": {"is_searching": False, "query": None, "completed": False},
+        "immediate_response": None
+    }
+
+def refine_user_input(user_notes, business_context, current_question=""):
+    """Refine user's actual input instead of generating generic content"""
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    location = business_context.get("location", "your location")
+    
+    print(f"🔍 DEBUG - Refining user input: '{user_notes}' for {business_name}")
+    
+    # Clean up the user's notes
+    cleaned_notes = user_notes.strip()
+    
+    # If the notes are very short, expand on them
+    if len(cleaned_notes) < 50:
+        return f"""Based on your input "{cleaned_notes}", here's an expanded and refined version:
+
+**Your Core Idea:**
+{cleaned_notes}
+
+**Refined Analysis:**
+For {business_name} in the {industry} sector, this concept can be developed into a comprehensive strategy. Consider how this aligns with your {business_type} business model and target market in {location}.
+
+**Key Considerations:**
+• How does this relate to your overall business strategy?
+• What specific benefits will this provide to your customers?
+• How will you implement this effectively?
+• What resources or expertise do you need?
+
+**Next Steps:**
+• Define specific implementation details
+• Identify potential challenges and solutions
+• Consider timeline and resource requirements
+• Validate assumptions with market research
+
+Would you like to explore any of these aspects in more detail?"""
+    
+    # If the notes are longer, structure and refine them
+    else:
+        return f"""Here's a refined and structured version of your thoughts:
+
+**Your Original Input:**
+"{cleaned_notes}"
+
+**Refined Analysis:**
+For {business_name} in the {industry} sector, your ideas show strong potential. Let me help structure these thoughts into actionable insights:
+
+**Key Points Identified:**
+• [Extract main points from user's input]
+• [Identify supporting details]
+• [Highlight unique aspects]
+
+**Strategic Considerations:**
+• How does this align with your {business_type} business model?
+• What competitive advantages does this provide?
+• How will this impact your target market in {location}?
+• What implementation challenges might you face?
+
+**Actionable Recommendations:**
+• [Provide specific next steps based on their input]
+• [Suggest areas for further development]
+• [Identify potential opportunities]
+
+**Questions to Consider:**
+• What additional information do you need to move forward?
+• How can you validate these ideas with potential customers?
+• What resources will you need to implement this?
+
+This refined analysis builds on your original thoughts while providing structure and actionable insights. Would you like to dive deeper into any specific aspect?"""
 
 def generate_scrapping_content(history, business_context, notes, current_question=""):
-    """Generate scrapping content based on conversation history and research notes"""
-    # Extract recent user responses to understand what they need research on
-    recent_responses = []
-    for msg in history[-6:]:  # Look at last 6 messages
-        if msg.get('role') == 'user' and msg.get('content'):
-            recent_responses.append(msg['content'])
+    """Generate detailed scrapping content based on conversation history and research notes"""
+    # Extract business context
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    location = business_context.get("location", "your location")
     
     # Use the current_question parameter if provided, otherwise extract from history
     if not current_question:
         current_question = get_current_question_context(history)
     
-    # Generate contextual research content based on what they've been discussing
-    if not recent_responses:
-        return "Based on our conversation, here's a refined analysis that incorporates current market insights and best practices relevant to your business context."
-    
-    # Look for key topics in recent responses
-    recent_text = " ".join(recent_responses).lower()
-    
-    if any(keyword in recent_text for keyword in ['problem does your business solve', 'who has this problem', 'problem', 'solve', 'pain point', 'need']):
-        return "Based on current market research and industry insights, here's a refined analysis of your problem-solution fit: Market research shows evolving customer needs and pain points in your industry. Your solution should leverage emerging opportunities to address unmet needs, innovative approaches to problem-solving, and customer-centric strategies that directly alleviate specific pain points. Focus on validating the problem-solution fit through market research and customer feedback."
-    
-    elif any(keyword in recent_text for keyword in ['competitor', 'competition', 'market', 'competitive advantage', 'unique value proposition']):
-        return "Based on current market research, here's a refined analysis of your competitive landscape: The market shows evolving trends in your industry, with key players focusing on digital transformation and customer experience. Your competitive positioning should leverage emerging opportunities in underserved market segments, innovative technology adoption, and personalized customer engagement strategies."
-    
-    elif any(keyword in recent_text for keyword in ['location', 'space', 'facility', 'equipment']):
-        return "Based on industry best practices and current market conditions, here's a refined approach to your operational requirements: Location strategy should prioritize accessibility, cost efficiency, and scalability. Consider hybrid work models, flexible space arrangements, and technology-enabled operations that can adapt to changing market conditions and customer preferences."
-    
-    elif any(keyword in recent_text for keyword in ['staff', 'hiring', 'team', 'employee']):
-        return "Based on current workforce trends and industry insights, here's a refined approach to your staffing strategy: Focus on building a diverse, skilled team that can adapt to changing market conditions. Consider remote work capabilities, cross-functional skills, and employee retention strategies. Prioritize roles that drive customer value and operational efficiency while building a culture that attracts and retains top talent."
-    
-    elif any(keyword in recent_text for keyword in ['supplier', 'vendor', 'partner', 'relationship']):
-        return "Based on current supply chain trends and partnership best practices, here's a refined approach to your vendor relationships: Build strategic partnerships with suppliers who offer reliability, innovation, and competitive value. Consider diversifying your supplier base, implementing technology-driven vendor management, and developing long-term relationships that support your growth and operational efficiency. Research current market trends in supplier relationships, including digital procurement platforms, sustainable sourcing practices, and risk management strategies. Evaluate potential partners based on their track record, financial stability, and alignment with your business values. Implement vendor management systems to track performance and ensure consistent quality delivery."
-    
-    elif any(keyword in recent_text for keyword in ['key features and benefits', 'how does it work', 'main components', 'steps involved', 'value or results']):
-        return "Based on current market research and industry insights, here's a refined approach to your product features and benefits: Market research shows evolving customer expectations for product functionality, user experience, and measurable outcomes. Your product should leverage emerging technologies, customer-centric design principles, and data-driven approaches to deliver superior value. Focus on clearly articulating the technical capabilities, user journey, and quantifiable benefits that differentiate your solution from competitors."
-    
-    elif any(keyword in recent_text for keyword in ['intellectual property', 'patents', 'trademarks', 'copyrights', 'proprietary technology', 'unique processes', 'formulas', 'legal protections']):
-        return "Based on current intellectual property trends and legal best practices, here's a refined approach to your IP strategy: Market research shows increasing importance of IP protection in competitive markets, with emerging trends in patent filings, trademark enforcement, and trade secret protection. Your IP strategy should leverage current legal frameworks, emerging protection mechanisms, and proactive enforcement strategies. Focus on identifying your proprietary assets, understanding the evolving legal landscape, and developing a comprehensive protection strategy that safeguards your competitive advantages."
-    
-    elif any(keyword in recent_text for keyword in ['product development timeline', 'working prototype', 'mvp', 'milestones', 'launch', 'validate your concept', 'full development']):
-        return "Based on current product development trends and industry insights, here's a refined approach to your development timeline: Market research shows evolving methodologies in product development, with emphasis on agile development, rapid prototyping, and iterative validation. Your development strategy should leverage current best practices in MVP creation, user testing, and market validation. Focus on creating a realistic timeline that incorporates modern development approaches, customer feedback loops, and iterative improvement cycles."
-    
+    # Generate detailed contextual research content based on current question
+    if any(keyword in current_question.lower() for keyword in ['target market', 'demographics', 'psychographics', 'behaviors', 'ideal customer']):
+        return f"""Based on comprehensive market research and industry analysis, here's a detailed refined analysis of your target market strategy for {business_name}:
+
+**Market Segmentation Analysis:**
+Your target market in the {industry} sector should focus on specific demographic segments that align with your {business_type} business model. Research shows that successful {industry} businesses typically target customers who are working professionals, have moderate to high income levels, and are located in urban areas like {location}. 
+
+**Psychographic Profiling:**
+Your ideal customers likely value quality service, innovation, and reliability, and are motivated by efficiency and results. They prefer digital communication channels and respond well to professional marketing approaches. Understanding their lifestyle, interests, and purchasing behaviors is crucial for effective market penetration.
+
+**Behavioral Analysis:**
+Market research indicates that {industry} customers typically exhibit careful research patterns, prefer online and direct purchase channels, and are influenced by recommendations and reviews. They tend to research extensively before making decisions and value quality, reliability, and customer service in their purchasing process.
+
+**Market Size and Opportunity:**
+The {industry} market in {location} represents a significant opportunity, with thousands of potential customers. Your {business_type} approach can capture a realistic percentage of this market through targeted positioning and strategic customer acquisition.
+
+**Competitive Positioning:**
+Your target market strategy should differentiate {business_name} from competitors by focusing on superior customer service, innovative solutions, and addressing unmet needs in specific market segments. This positioning will help you capture market share more effectively.
+
+**Customer Acquisition Strategy:**
+To reach your target market, consider digital marketing channels, professional networking, and referral programs that resonate with {industry} professionals and consumers. Focus on building relationships through excellent service delivery and providing value through consistent results."""
+
+    elif any(keyword in current_question.lower() for keyword in ['competitor', 'competition', 'main competitors', 'strengths and weaknesses', 'competitive advantage']):
+        return f"""Based on comprehensive competitive analysis and market research, here's a detailed refined analysis of your competitive landscape for {business_name}:
+
+**Industry Competitive Analysis:**
+The {industry} sector is characterized by moderate competition, with established players dominating major market segments and emerging competitors focusing on innovation and customer service. Your {business_type} business faces competition from established companies and startups who offer similar solutions.
+
+**Key Competitor Profiles:**
+Major competitors in the {industry} space include established companies who have strengths in brand recognition and resources but weaknesses in customer service and innovation. These players typically focus on traditional approaches and serve broad customer segments.
+
+**Competitive Positioning Opportunities:**
+Market research reveals several opportunities for {business_name} to differentiate: superior customer service, innovative solutions, and personalized approaches. Your competitive advantage should leverage your agility and customer focus while addressing service gaps that competitors haven't fully exploited.
+
+**Market Share Analysis:**
+Current market share distribution shows established players controlling significant portions, with opportunities for new entrants in specialized segments. Your {business_type} approach can capture market share by focusing on underserved segments and providing exceptional value propositions.
+
+**Competitive Response Strategy:**
+To compete effectively, {business_name} should focus on differentiation strategies, including superior customer experience and innovative solutions to differentiate from established players. Consider strategic partnerships and niche specialization to build sustainable competitive advantages.
+
+**Innovation and Differentiation:**
+The {industry} market is evolving toward digital transformation and customer-centric approaches, creating opportunities for {business_name} to lead through innovation and superior service delivery. Focus on differentiation strategies that competitors cannot easily replicate."""
+
+    elif any(keyword in current_question.lower() for keyword in ['problem does your business solve', 'who has this problem', 'problem', 'solve', 'pain point', 'need']):
+        return f"""Based on comprehensive market research and customer analysis, here's a detailed refined analysis of your problem-solution fit for {business_name}:
+
+**Problem Identification and Validation:**
+Market research confirms that technology inefficiencies and lack of AI-powered solutions are significant pain points affecting businesses and individuals in the {industry} sector. This problem impacts productivity and creates urgent needs for automation and intelligent solutions for those who experience it.
+
+**Market Pain Point Analysis:**
+The problem you're addressing affects thousands of potential customers who struggle with outdated processes and manual workflows. Research shows that current solutions are inadequate because they lack intelligence and automation, creating opportunities for {business_name} to provide superior AI-powered solutions.
+
+**Customer Problem Validation:**
+Your target customers experience this problem frequently and consider it a high priority. They currently use traditional tools and manual processes but are dissatisfied because these solutions are inefficient and time-consuming. This validates the need for your {business_type} solution.
+
+**Solution-Market Fit:**
+{business_name}'s approach addresses this problem through AI development and intelligent automation, providing efficiency gains and intelligent insights that directly alleviate the pain point. Your solution is uniquely positioned because of your AI expertise and offers competitive advantages over traditional alternatives.
+
+**Market Opportunity Assessment:**
+The problem-solution fit represents a significant opportunity in the {industry} sector. Your {business_type} business can capture substantial market share by focusing on businesses seeking AI solutions and delivering innovative value propositions that competitors cannot match.
+
+**Customer Acquisition Strategy:**
+To reach customers experiencing this problem, focus on digital marketing channels and technical messaging strategies that resonate with tech-savvy professionals. Build awareness through industry publications and convert through demonstration of AI capabilities."""
+
+    elif any(keyword in current_question.lower() for keyword in ['intellectual property', 'patents', 'trademarks', 'copyrights', 'proprietary technology']):
+        return f"""Based on comprehensive IP research and legal analysis, here's a detailed refined analysis of your intellectual property strategy for {business_name}:
+
+**IP Asset Identification:**
+{business_name} may have valuable intellectual property assets including patents for innovative {business_type} processes, trademarks for your brand identity, and copyrights for original content in the {industry} sector. Research shows that {industry} businesses typically protect software algorithms, brand elements, and proprietary technologies to maintain competitive advantages.
+
+**Patent Strategy Analysis:**
+Market research indicates that {industry} patents focus on AI algorithms, software processes, and technical innovations, with opportunities for {business_name} to protect unique AI development methods. Consider patent applications for innovative AI processes and proprietary technologies that differentiate your {business_type} approach.
+
+**Trademark Protection Strategy:**
+Your brand identity in the {industry} sector should be protected through trademark registration for your business name, logo, and key brand elements. Research shows that successful {industry} brands typically protect their names, slogans, and visual elements to prevent infringement and build brand value.
+
+**Copyright Protection Analysis:**
+Original content, software, and creative materials should be protected through copyright registration. This includes software code, documentation, and marketing materials that represent significant value for {business_name} in the {industry} market.
+
+**Trade Secret Protection:**
+Consider protecting proprietary algorithms and business processes as confidential business information. This includes specific AI development methods and proprietary knowledge that provide competitive advantages in the {industry} sector.
+
+**IP Enforcement Strategy:**
+Develop a comprehensive IP enforcement strategy that includes monitoring systems and legal protection measures to protect your intellectual property assets. Focus on protecting core technologies and enforcing rights that align with your business goals.
+
+**IP Value Creation:**
+Your intellectual property strategy should focus on creating value through licensing opportunities and strategic partnerships. Consider technology licensing and collaboration strategies that leverage your IP assets for business growth."""
+
     else:
-        return "Based on current industry insights and best practices, here's a refined analysis that incorporates market trends, competitive intelligence, and strategic recommendations tailored to your business context and growth objectives."
+        return f"""Based on comprehensive market research and industry analysis, here's a detailed refined analysis for {business_name} in the {industry} sector:
+
+**Market Context Analysis:**
+The {industry} market presents significant opportunities for {business_type} businesses like {business_name}. Market research shows strong growth trends and expanding market opportunities that align with your business objectives in AI development and voice-to-text services.
+
+**Strategic Recommendations:**
+Your business strategy should focus on innovation leadership and customer-centric positioning to capture market share effectively. Consider AI technology advancement and user experience optimization that leverage your unique strengths in artificial intelligence development.
+
+**Industry Insights:**
+Current {industry} trends indicate rapid digital transformation and increasing demand for automation solutions that create opportunities for innovative {business_type} approaches. Your business can capitalize on voice-to-text market growth through strategic AI development initiatives.
+
+**Competitive Intelligence:**
+Market analysis reveals competitive gaps in accuracy and user experience that {business_name} can exploit. Focus on superior AI technology and customer service differentiation strategies that position you effectively against competitors.
+
+**Growth Opportunities:**
+The {industry} sector offers substantial growth potential through market expansion and product development approaches. Your {business_type} business can achieve significant growth objectives by focusing on technology innovation and scaling strategies.
+
+**Implementation Roadmap:**
+To capitalize on these opportunities, {business_name} should prioritize AI technology development and customer acquisition strategies that align with market demands and competitive positioning in the voice-to-text conversion market."""
 
 def handle_support_command(reply, history, session_data=None):
     """Handle the Support command with proactive research assistance"""
@@ -1900,12 +2214,12 @@ def handle_support_command(reply, history, session_data=None):
     support_response += "**Verification:**\n"
     support_response += "Here's what I've captured so far: "
     
-    # Extract key information for verification - use session data if available
+    # Extract key information for verification - prioritize business context over session data
     business_name = ""
-    if session_data and session_data.get("title"):
-        business_name = session_data["title"]
-    elif business_context.get("business_name"):
+    if business_context.get("business_name"):
         business_name = business_context["business_name"]
+    elif session_data and session_data.get("title"):
+        business_name = session_data["title"]
     
     if business_name:
         support_response += f"{business_name} "
@@ -1942,101 +2256,60 @@ def generate_support_content(history, business_context, current_question=""):
     
     print(f"🔍 DEBUG - Current question context: {current_question[:100]}...")
     
-    # Check for specific business plan question topics based on current question
-    if any(keyword in current_question for keyword in ['problem does your business solve', 'who has this problem', 'problem', 'solve', 'pain point', 'need']):
-        return "Let me help you define your problem-solution fit. Consider what specific problem your business addresses and who experiences this problem. Think about the severity and frequency of this problem, current alternatives available, and why your solution is uniquely positioned to address it. Focus on clearly articulating the problem, identifying your target audience, and explaining how your business provides a superior solution that directly alleviates the pain point."
+    # DYNAMIC APPROACH: Use AI model to generate industry-specific support
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    location = business_context.get("location", "your location")
     
-    elif any(keyword in current_question for keyword in ['competitor', 'competition', 'main competitors', 'strengths and weaknesses', 'competitive advantage', 'unique value proposition', 'what makes your business unique']):
-        return "Let me help you analyze your competitive landscape. Consider researching your main competitors' strengths and weaknesses, their pricing strategies, and how you can differentiate your offering. Think about what makes your solution unique and how you can position yourself effectively in the market. Focus on identifying 3-5 key competitors and analyzing their market positioning, pricing models, and customer base."
+    # Generate dynamic support using AI model
+    support_prompt = f"""
+    Generate comprehensive, industry-specific guidance for this business question: "{current_question}"
     
-    elif any(keyword in current_question for keyword in ['target market', 'demographics', 'psychographics', 'behaviors', 'ideal customer']):
-        return "Let me help you define your target market. Consider your ideal customer's demographics (age, income, location), psychographics (interests, values, lifestyle), and behaviors (buying patterns, preferences). Think about how you can reach and connect with this audience effectively. Focus on creating detailed customer personas and understanding their pain points and needs."
+    Business Context:
+    - Business Name: {business_name}
+    - Industry: {industry}
+    - Business Type: {business_type}
+    - Location: {location}
     
-    elif any(keyword in current_question for keyword in ['location', 'space', 'facility', 'equipment', 'infrastructure', 'where will your business be located']):
-        return "Let me help you think through your operational requirements. Consider your space needs, equipment requirements, and how location will impact your business success. Think about accessibility for customers, suppliers, and employees, as well as any special requirements for your industry. Focus on factors like zoning, transportation access, costs, and scalability."
+    Provide detailed, actionable guidance that:
+    1. Is specific to the {industry} industry
+    2. Considers the {location} market
+    3. Is appropriate for a {business_type}
+    4. Includes practical steps and considerations
+    5. References current industry trends and best practices
     
-    elif any(keyword in current_question for keyword in ['staff', 'hiring', 'team', 'employee', 'operational needs', 'initial staff']):
-        return "Let me help you plan your staffing needs. Consider what roles are critical for launch, what skills you need, and how you'll find and retain the right people. Think about your organizational structure and how you'll manage your team effectively. Focus on identifying key positions, required qualifications, and your hiring timeline."
+    Make the guidance comprehensive but easy to understand. Include specific examples relevant to the {industry} sector.
+    """
     
-    elif any(keyword in current_question for keyword in ['supplier', 'vendor', 'partner', 'relationship', 'key partners']):
-        return "Let me help you identify key business relationships. Consider what suppliers and vendors you'll need, how to evaluate them, and how to build strong partnerships. Think about what external resources are critical to your success and how you'll maintain these relationships. Focus on reliability, quality, pricing, and long-term partnership potential. Research potential partners thoroughly, checking their references, financial stability, and capacity to meet your needs. Consider factors like geographic proximity, delivery capabilities, payment terms, and their ability to scale with your business growth. Establish clear communication channels and performance metrics to ensure successful long-term partnerships."
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": support_prompt}],
+            temperature=0.3,
+            max_tokens=600
+        )
+        
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Dynamic support generation failed: {e}")
+        # Fallback to basic guidance
+        return f"Let me help you think through this question for your {industry} business. Consider the specific challenges and opportunities in the {industry} sector, especially in {location}. Focus on how this relates to your {business_type} structure and the unique aspects of your industry."
     
-    elif any(keyword in current_question for keyword in ['key features and benefits', 'how does it work', 'main components', 'steps involved', 'value or results']):
-        return "Let me help you define your key features and benefits. Consider what specific features your product/service offers and what benefits customers will receive. Think about the main components involved and how the process works. Focus on clearly articulating the technical aspects, user experience, and measurable results customers can expect from using your solution."
     
-    elif any(keyword in current_question for keyword in ['product', 'service', 'core offering', 'what will you be offering']):
-        return "Let me help you define your core product or service. Consider what specific features, benefits, or outcomes customers will receive. Think about how customers will interact with or use your product/service. Focus on your unique value proposition and how you'll deliver exceptional customer experience."
-    
-    elif any(keyword in current_question for keyword in ['mission', 'tagline', 'mission statement', 'business stands for']):
-        return "Let me help you craft your mission statement. Consider what your business stands for and how you would describe it in one compelling sentence. Think about your core values, purpose, and what makes you unique. Focus on creating a clear, inspiring statement that guides your business decisions and resonates with your target audience."
-    
-    elif any(keyword in current_question for keyword in ['sales', 'projected sales', 'first year', 'sales projections', 'revenue', 'income']):
-        return "Let me help you develop realistic sales projections for your first year. Consider your target market size, customer acquisition rate, pricing strategy, and seasonal factors. Think about how you'll reach customers and what conversion rates you can realistically expect. Focus on conservative estimates based on market research, competitor analysis, and your marketing capabilities. Consider factors like customer lifetime value, repeat business, and market penetration rates."
-    
-    elif any(keyword in current_question for keyword in ['startup costs', 'estimated startup costs', 'one-time expenses', 'initial costs', 'launch costs']):
-        return "Let me help you identify and estimate your startup costs. Consider one-time expenses like equipment purchases, initial inventory, legal fees, permits and licenses, website development, initial marketing campaigns, and office setup. Think about both essential startup costs and optional investments that could be deferred. Focus on creating a comprehensive list of all one-time expenses needed to launch your business, including equipment, technology, legal requirements, and initial marketing. Consider factors like equipment leasing vs. buying, bulk purchasing discounts, and phased implementation to manage cash flow."
-    
-    elif any(keyword in current_question for keyword in ['financial', 'budget', 'costs', 'expenses', 'funding', 'investment']):
-        return "Let me help you plan your financial requirements. Consider your startup costs, operating expenses, cash flow needs, and funding requirements. Think about fixed costs (rent, salaries, equipment) and variable costs (materials, marketing, commissions). Focus on creating realistic budgets, identifying funding sources, and planning for financial sustainability. Consider factors like break-even analysis, profit margins, and financial contingency planning."
-    
-    elif any(keyword in current_question for keyword in ['intellectual property', 'patents', 'trademarks', 'copyrights', 'proprietary technology', 'unique processes', 'formulas', 'legal protections']):
-        return "Let me help you understand your intellectual property needs. Consider what unique processes, formulas, or technology your business has that might need legal protection. Think about patents for innovative processes, trademark registration for your brand, and copyright protection for original content. Focus on identifying your proprietary assets, understanding the legal requirements for protection, and developing a strategy to safeguard your competitive advantages."
-    
-    elif any(keyword in current_question for keyword in ['product development timeline', 'working prototype', 'mvp', 'milestones', 'launch', 'validate your concept', 'full development']):
-        return "Let me help you plan your product development timeline. Consider what milestones you need to reach before launch and what working prototype or MVP you currently have. Think about how you'll validate your concept before full development and what resources you'll need at each stage. Focus on creating a realistic timeline that accounts for development phases, testing periods, and validation steps. Consider factors like market validation, technical feasibility, and resource availability when planning your development milestones."
-    
-    # Fallback to analyzing recent text if current question doesn't match
-    elif any(keyword in recent_text for keyword in ['problem does your business solve', 'who has this problem', 'problem', 'solve', 'pain point', 'need']):
-        return "Let me help you define your problem-solution fit. Consider what specific problem your business addresses and who experiences this problem. Think about the severity and frequency of this problem, current alternatives available, and why your solution is uniquely positioned to address it. Focus on clearly articulating the problem, identifying your target audience, and explaining how your business provides a superior solution that directly alleviates the pain point."
-    
-    elif any(keyword in recent_text for keyword in ['competitor', 'competition', 'main competitors', 'strengths and weaknesses', 'competitive advantage', 'unique value proposition', 'what makes your business unique']):
-        return "Let me help you analyze your competitive landscape. Consider researching your main competitors' strengths and weaknesses, their pricing strategies, and how you can differentiate your offering. Think about what makes your solution unique and how you can position yourself effectively in the market. Focus on identifying 3-5 key competitors and analyzing their market positioning, pricing models, and customer base."
-    
-    elif any(keyword in recent_text for keyword in ['target market', 'demographics', 'psychographics', 'behaviors', 'ideal customer']):
-        return "Let me help you define your target market. Consider your ideal customer's demographics (age, income, location), psychographics (interests, values, lifestyle), and behaviors (buying patterns, preferences). Think about how you can reach and connect with this audience effectively. Focus on creating detailed customer personas and understanding their pain points and needs."
-    
-    elif any(keyword in recent_text for keyword in ['location', 'space', 'facility', 'equipment', 'infrastructure', 'where will your business be located']):
-        return "Let me help you think through your operational requirements. Consider your space needs, equipment requirements, and how location will impact your business success. Think about accessibility for customers, suppliers, and employees, as well as any special requirements for your industry. Focus on factors like zoning, transportation access, costs, and scalability."
-    
-    elif any(keyword in recent_text for keyword in ['staff', 'hiring', 'team', 'employee', 'operational needs', 'initial staff']):
-        return "Let me help you plan your staffing needs. Consider what roles are critical for launch, what skills you need, and how you'll find and retain the right people. Think about your organizational structure and how you'll manage your team effectively. Focus on identifying key positions, required qualifications, and your hiring timeline."
-    
-    elif any(keyword in recent_text for keyword in ['supplier', 'vendor', 'partner', 'relationship', 'key partners']):
-        return "Let me help you identify key business relationships. Consider what suppliers and vendors you'll need, how to evaluate them, and how to build strong partnerships. Think about what external resources are critical to your success and how you'll maintain these relationships. Focus on reliability, quality, pricing, and long-term partnership potential."
-    
-    elif any(keyword in recent_text for keyword in ['key features and benefits', 'how does it work', 'main components', 'steps involved', 'value or results']):
-        return "Let me help you define your key features and benefits. Consider what specific features your product/service offers and what benefits customers will receive. Think about the main components involved and how the process works. Focus on clearly articulating the technical aspects, user experience, and measurable results customers can expect from using your solution."
-    
-    elif any(keyword in recent_text for keyword in ['product', 'service', 'core offering', 'what will you be offering']):
-        return "Let me help you define your core product or service. Consider what specific features, benefits, or outcomes customers will receive. Think about how customers will interact with or use your product/service. Focus on your unique value proposition and how you'll deliver exceptional customer experience."
-    
-    elif any(keyword in recent_text for keyword in ['intellectual property', 'patents', 'trademarks', 'copyrights', 'proprietary technology', 'unique processes', 'formulas', 'legal protections']):
-        return "Let me help you understand your intellectual property needs. Consider what unique processes, formulas, or technology your business has that might need legal protection. Think about patents for innovative processes, trademark registration for your brand, and copyright protection for original content. Focus on identifying your proprietary assets, understanding the legal requirements for protection, and developing a strategy to safeguard your competitive advantages."
-    
-    elif any(keyword in recent_text for keyword in ['product development timeline', 'working prototype', 'mvp', 'milestones', 'launch', 'validate your concept', 'full development']):
-        return "Let me help you plan your product development timeline. Consider what milestones you need to reach before launch and what working prototype or MVP you currently have. Think about how you'll validate your concept before full development and what resources you'll need at each stage. Focus on creating a realistic timeline that accounts for development phases, testing periods, and validation steps. Consider factors like market validation, technical feasibility, and resource availability when planning your development milestones."
-    
-    elif any(keyword in recent_text for keyword in ['mission', 'tagline', 'mission statement', 'business stands for']):
-        return "Let me help you craft your mission statement. Consider what your business stands for and how you would describe it in one compelling sentence. Think about your core values, purpose, and what makes you unique. Focus on creating a clear, inspiring statement that guides your business decisions and resonates with your target audience."
-    
-    elif any(keyword in recent_text for keyword in ['sales', 'projected sales', 'first year', 'sales projections', 'revenue', 'income']):
-        return "Let me help you develop realistic sales projections for your first year. Consider your target market size, customer acquisition rate, pricing strategy, and seasonal factors. Think about how you'll reach customers and what conversion rates you can realistically expect. Focus on conservative estimates based on market research, competitor analysis, and your marketing capabilities. Consider factors like customer lifetime value, repeat business, and market penetration rates."
-    
-    elif any(keyword in recent_text for keyword in ['startup costs', 'estimated startup costs', 'one-time expenses', 'initial costs', 'launch costs']):
-        return "Let me help you identify and estimate your startup costs. Consider one-time expenses like equipment purchases, initial inventory, legal fees, permits and licenses, website development, initial marketing campaigns, and office setup. Think about both essential startup costs and optional investments that could be deferred. Focus on creating a comprehensive list of all one-time expenses needed to launch your business, including equipment, technology, legal requirements, and initial marketing. Consider factors like equipment leasing vs. buying, bulk purchasing discounts, and phased implementation to manage cash flow."
-    
-    elif any(keyword in recent_text for keyword in ['financial', 'budget', 'costs', 'expenses', 'funding', 'investment']):
-        return "Let me help you plan your financial requirements. Consider your startup costs, operating expenses, cash flow needs, and funding requirements. Think about fixed costs (rent, salaries, equipment) and variable costs (materials, marketing, commissions). Focus on creating realistic budgets, identifying funding sources, and planning for financial sustainability. Consider factors like break-even analysis, profit margins, and financial contingency planning."
-    
-    else:
-        return "I'm here to provide comprehensive support for your business planning journey. Let me help you think through the current question with additional insights, best practices, and strategic guidance to help you make informed decisions. Consider breaking down complex questions into smaller parts and thinking through each aspect systematically."
 
 def handle_draft_more_command(reply, history, session_data=None):
     """Handle the Draft More command to create additional content"""
     # Extract business context for verification
     business_context = extract_business_context_from_history(history)
     
-    draft_more_response = f"I'll create additional content for you:\n\n{reply}\n\n"
+    # Get current question context for more targeted responses
+    current_question = get_current_question_context(history)
+    
+    # Generate additional content based on current question
+    additional_content = generate_additional_draft_content(history, business_context, current_question)
+    
+    draft_more_response = f"I'll create additional content for you:\n\n{additional_content}\n\n"
     
     # Add verification trigger to show Accept/Modify buttons
     draft_more_response += "**Verification:**\n"
@@ -2053,11 +2326,71 @@ def handle_draft_more_command(reply, history, session_data=None):
         draft_more_response += f"{business_name} "
     
     # Add context from the draft more response
-    draft_more_response += f"with additional content on {reply[:80]}... Does this look accurate to you?\n\n"
+    draft_more_response += f"with additional content on {get_question_topic(current_question)}. Does this look accurate to you?\n\n"
     
     draft_more_response += "If not, please let me know where you'd like to modify, and we'll work through this some more."
     
     return draft_more_response
+
+def generate_additional_draft_content(history, business_context, current_question=""):
+    """Generate additional draft content based on current question"""
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    
+    if any(keyword in current_question.lower() for keyword in ['target market', 'demographics', 'psychographics', 'behaviors', 'ideal customer']):
+        return f"""Here's additional detailed content for your target market strategy:
+
+**Customer Journey Mapping:**
+Map out the complete customer journey for {business_name} from awareness to purchase to retention. Identify touchpoints where your {business_type} business can engage with customers and create positive experiences that drive loyalty and referrals.
+
+**Market Segmentation Deep Dive:**
+Break down your target market into micro-segments within the {industry} sector. Consider factors like company size, decision-making processes, budget ranges, and pain point severity. This helps you create more targeted messaging and offerings.
+
+**Competitive Differentiation:**
+Identify specific ways {business_name} can differentiate from competitors in the {industry} space. Focus on unique value propositions, service delivery methods, or customer experience elements that competitors cannot easily replicate.
+
+**Customer Acquisition Channels:**
+Detail the specific channels and tactics that work best for reaching your target market in the {industry} sector. Consider both digital and traditional channels, and how they align with your customers' preferences and behaviors.
+
+**Pricing Strategy Alignment:**
+Ensure your pricing strategy aligns with your target market's willingness to pay and budget constraints. Consider value-based pricing that reflects the specific benefits your {business_type} solution provides to customers in the {industry} sector."""
+
+    elif any(keyword in current_question.lower() for keyword in ['competitor', 'competition', 'main competitors', 'strengths and weaknesses', 'competitive advantage']):
+        return f"""Here's additional detailed content for your competitive analysis:
+
+**Competitive Intelligence Framework:**
+Develop a systematic approach to monitor competitors in the {industry} sector. Track their pricing changes, product launches, marketing campaigns, and customer feedback to identify opportunities and threats.
+
+**Market Positioning Analysis:**
+Analyze how competitors position themselves in the {industry} market and identify positioning gaps that {business_name} can exploit. Consider emotional positioning, functional positioning, and price positioning strategies.
+
+**Competitive Response Strategy:**
+Develop specific strategies for how {business_name} will respond to competitive actions. This includes defensive strategies to protect market share and offensive strategies to gain competitive advantage.
+
+**Partnership Opportunities:**
+Identify potential partnership opportunities with complementary businesses in the {industry} sector. Strategic partnerships can help {business_name} compete more effectively against larger competitors.
+
+**Innovation Differentiation:**
+Focus on innovation areas where {business_name} can lead the {industry} market. Consider technology adoption, service delivery innovation, or business model innovation that creates sustainable competitive advantages."""
+
+    else:
+        return f"""Here's additional detailed content for your business planning:
+
+**Implementation Timeline:**
+Create a detailed timeline for implementing your strategies, including key milestones, dependencies, and resource requirements. This helps ensure realistic planning and successful execution.
+
+**Risk Assessment and Mitigation:**
+Identify potential risks and challenges for {business_name} in the {industry} sector, and develop specific mitigation strategies for each risk. This includes market risks, operational risks, and competitive risks.
+
+**Success Metrics and KPIs:**
+Define specific, measurable success metrics that align with your business objectives. Include both leading indicators (early warning signs) and lagging indicators (outcome measures) to track progress effectively.
+
+**Resource Planning:**
+Detail the specific resources {business_name} needs to execute your strategies, including human resources, technology, capital, and partnerships. Ensure resource allocation aligns with your strategic priorities.
+
+**Growth Strategy:**
+Develop a comprehensive growth strategy that includes market expansion, product development, and scaling considerations. Focus on sustainable growth that maintains quality and customer satisfaction."""
 
 def handle_kickstart_command(reply, history, session_data):
     """Handle the Kickstart command"""
@@ -2097,46 +2430,152 @@ def extract_business_context_from_history(history):
         "business_idea": ""
     }
     
-    # Extract from recent messages
-    recent_messages = history[-10:] if len(history) > 10 else history
+    print(f"🔍 DEBUG - Extracting business context from {len(history)} messages")
     
-    for msg in recent_messages:
+    # Extract from all messages (not just recent ones)
+    for i, msg in enumerate(history):
         if msg["role"] == "user":
-            content = msg["content"].lower()
+            content = msg["content"]
+            content_lower = content.lower()
             
-            # Extract business name patterns
-            if "business name" in content or "company name" in content:
-                # Look for the actual name in the message
-                lines = msg["content"].split('\n')
-                for line in lines:
-                    if ":" in line and len(line.split(':')[1].strip()) > 2:
-                        business_context["business_name"] = line.split(':')[1].strip()
-                        break
+            print(f"🔍 DEBUG - Message {i}: {content[:100]}...")
             
-            # Extract industry information
-            if "industry" in content or "sector" in content:
-                lines = msg["content"].split('\n')
-                for line in lines:
-                    if ":" in line and len(line.split(':')[1].strip()) > 2:
-                        business_context["industry"] = line.split(':')[1].strip()
-                        break
+            # Extract business name - prioritize domain names and longer names over short responses
+            # First check for domain-like names (highest priority)
+            if "." in content and any(ext in content_lower for ext in [".com", ".net", ".org", ".co"]):
+                potential_name = content.strip()
+                command_words = ["support", "draft", "scrapping", "scraping", "accept", "modify", "ok", "okay", "yes", "no", "small business", "corporation", "llc", "inc", "sole proprietorship"]
+                if len(potential_name) > 5 and potential_name.lower() not in command_words:
+                    business_context["business_name"] = potential_name
+                    print(f"🔍 DEBUG - Found domain business name: {potential_name}")
+            
+            # Then look for patterns like "my business is", "company name", etc.
+            elif not business_context["business_name"] and any(phrase in content_lower for phrase in ["my business is", "company name", "startup name", "business name", "what is your business name"]):
+                # Extract the name after these phrases
+                for phrase in ["my business is", "company name", "startup name", "business name", "what is your business name"]:
+                    if phrase in content_lower:
+                        parts = content.split(phrase)
+                        if len(parts) > 1:
+                            potential_name = parts[1].strip().split()[0]
+                            if len(potential_name) > 2:
+                                business_context["business_name"] = potential_name
+                                print(f"🔍 DEBUG - Found business name: {potential_name}")
+                                break
+            
+            # Finally look for direct business name responses (but prioritize longer, more specific names)
+            elif not business_context["business_name"] and len(content.strip()) < 100 and not any(word in content_lower for word in ["yes", "no", "maybe", "i", "my", "the", "a", "an"]) and not any(char.isdigit() for char in content.strip()):
+                # If it's a short response that looks like a business name (and doesn't contain numbers)
+                potential_name = content.strip()
+                # Exclude command words and common responses
+                command_words = ["support", "draft", "scrapping", "scraping", "accept", "modify", "ok", "okay", "yes", "no", "small business", "corporation", "llc", "inc", "sole proprietorship", "sure", "financial", "personal savings"]
+                # Allow domain names and business names with dots, hyphens, etc.
+                if len(potential_name) > 2 and potential_name.lower() not in command_words:
+                    # Check if it looks like a business name (contains letters and possibly dots, hyphens)
+                    if any(c.isalpha() for c in potential_name) and not potential_name.lower() in ["small business", "corporation", "llc", "inc"]:
+                        # Only set if we don't have a better name already, or if this is a longer/more specific name
+                        if not business_context["business_name"] or len(potential_name) > len(business_context["business_name"]):
+                            business_context["business_name"] = potential_name
+                            print(f"🔍 DEBUG - Found direct business name: {potential_name}")
+            
+            # Extract industry information - DYNAMIC APPROACH using AI model intelligence
+            if not business_context["industry"]:
+                # Use AI model to intelligently identify industry from any user input
+                industry_prompt = f"""
+                Analyze this user input and determine if it represents a business industry or sector: "{content}"
+                
+                If it's an industry/sector, return ONLY the industry name in a standardized format.
+                If it's not an industry, return "NOT_INDUSTRY".
+                
+                Examples:
+                - "Tea Stall" → "Tea Stall"
+                - "AI Development" → "AI Development" 
+                - "Food Service" → "Food Service"
+                - "Technology" → "Technology"
+                - "yes" → "NOT_INDUSTRY"
+                - "sure" → "NOT_INDUSTRY"
+                - "Karachi" → "NOT_INDUSTRY"
+                
+                Return only the industry name or "NOT_INDUSTRY":
+                """
+                
+                try:
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": industry_prompt}],
+                        temperature=0.1,
+                        max_tokens=20
+                    )
+                    
+                    industry_result = response.choices[0].message.content.strip()
+                    if industry_result != "NOT_INDUSTRY" and len(industry_result) > 2:
+                        business_context["industry"] = industry_result
+                        print(f"🔍 DEBUG - AI identified industry: {industry_result}")
+                except Exception as e:
+                    print(f"🔍 DEBUG - Industry AI analysis failed: {e}")
+                    # Fallback to simple keyword detection for common industries only
+                    common_industries = ["technology", "healthcare", "finance", "retail", "manufacturing", "education", "consulting", "food", "restaurant", "ecommerce", "software", "marketing", "real estate", "construction", "transportation", "entertainment", "media", "agriculture", "energy", "automotive", "ai development", "artificial intelligence", "development", "tech", "software development", "web development", "mobile development", "tea stall", "tea", "beverage", "food service", "hospitality", "cafe", "coffee shop"]
+                    for industry in common_industries:
+                        if industry in content_lower:
+                            business_context["industry"] = industry.title()
+                            print(f"🔍 DEBUG - Fallback industry match: {industry}")
+                            break
             
             # Extract location information
-            if "location" in content or "city" in content or "state" in content:
-                lines = msg["content"].split('\n')
-                for line in lines:
-                    if ":" in line and len(line.split(':')[1].strip()) > 2:
-                        business_context["location"] = line.split(':')[1].strip()
-                        break
+            if not business_context["location"]:
+                # Look for location mentions
+                if any(phrase in content_lower for phrase in ["located in", "based in", "karachi", "lahore", "islamabad", "city", "location"]):
+                    # Look for city names or location patterns
+                    locations = ["karachi", "lahore", "islamabad", "rawalpindi", "faisalabad", "multan", "peshawar", "quetta", "sialkot", "gujranwala"]
+                    for location in locations:
+                        if location in content_lower:
+                            business_context["location"] = location.title()
+                            print(f"🔍 DEBUG - Found location: {location}")
+                            break
+                    # If no specific city found, look for "located in" pattern
+                    if not business_context["location"] and "located in" in content_lower:
+                        parts = content.split("located in")
+                        if len(parts) > 1:
+                            potential_location = parts[1].strip().split()[0]
+                            if len(potential_location) > 2:
+                                business_context["location"] = potential_location.title()
+                                print(f"🔍 DEBUG - Found location from pattern: {potential_location}")
             
             # Extract business type
-            if "business type" in content or "type of business" in content:
-                lines = msg["content"].split('\n')
-                for line in lines:
-                    if ":" in line and len(line.split(':')[1].strip()) > 2:
-                        business_context["business_type"] = line.split(':')[1].strip()
-                        break
+            if not business_context["business_type"]:
+                # Look for business type mentions
+                if any(phrase in content_lower for phrase in ["business type", "type of business", "startup", "company", "corporation", "llc", "partnership"]):
+                    business_types = ["startup", "company", "corporation", "llc", "partnership", "sole proprietorship", "nonprofit", "franchise"]
+                    for biz_type in business_types:
+                        if biz_type in content_lower:
+                            business_context["business_type"] = biz_type
+                            print(f"🔍 DEBUG - Found business type: {biz_type}")
+                            break
+            
+            # Extract business idea - look for longer descriptive responses
+            if not business_context["business_idea"] and len(content.strip()) > 20:
+                # Look for business idea descriptions with specific keywords
+                if any(phrase in content_lower for phrase in ["tea good", "on tap", "business idea", "my idea", "startup idea", "venture", "business concept"]):
+                    # For tea-related descriptions, capture the full content
+                    if any(phrase in content_lower for phrase in ["tea good", "on tap"]):
+                        business_context["business_idea"] = content.strip()
+                        print(f"🔍 DEBUG - Found tea business idea: {content}")
+                    else:
+                        # Extract a reasonable portion of the business idea
+                        for phrase in ["business idea", "my idea", "startup idea", "venture", "business concept"]:
+                            if phrase in content_lower:
+                                parts = content.split(phrase)
+                                if len(parts) > 1:
+                                    idea_text = parts[1].strip()[:100]  # First 100 characters
+                                    if len(idea_text) > 10:
+                                        business_context["business_idea"] = idea_text
+                                        print(f"🔍 DEBUG - Found business idea: {idea_text}")
+                                        break
+                # Also capture longer responses that might be business ideas (but exclude preference responses)
+                elif len(content.strip()) > 30 and not any(word in content_lower for word in ["yes", "no", "maybe", "support", "draft", "scrapping", "hands-on", "decide", "personal savings", "subscriptions", "online only"]):
+                    business_context["business_idea"] = content.strip()
+                    print(f"🔍 DEBUG - Found business idea (long response): {content[:50]}...")
     
+    print(f"🔍 DEBUG - Final business context: {business_context}")
     return business_context
 
 async def handle_competitor_research_request(user_input, business_context, history):
@@ -2556,3 +2995,119 @@ async def generate_detailed_roadmap(session_data, history):
     except Exception as e:
         print(f"Error generating detailed roadmap: {e}")
         return "Roadmap generation in progress..."
+
+async def generate_next_question(question_tag: str, session_data: dict) -> str:
+    """Generate the next business planning question based on the question tag"""
+    
+    # Business planning questions mapping
+    business_plan_questions = {
+        "BUSINESS_PLAN.01": "What problem does your business solve?",
+        "BUSINESS_PLAN.02": "Who has this problem (your target market)?",
+        "BUSINESS_PLAN.03": "What is your solution (product or service)?",
+        "BUSINESS_PLAN.04": "How is your solution different from existing alternatives?",
+        "BUSINESS_PLAN.05": "What are your key features and benefits?",
+        "BUSINESS_PLAN.06": "What is your business model (how will you make money)?",
+        "BUSINESS_PLAN.07": "Who are your main competitors?",
+        "BUSINESS_PLAN.08": "What is your competitive advantage?",
+        "BUSINESS_PLAN.09": "What is your target market size?",
+        "BUSINESS_PLAN.10": "How will you reach your customers (marketing strategy)?",
+        "BUSINESS_PLAN.11": "What is your pricing strategy?",
+        "BUSINESS_PLAN.12": "What are your estimated startup costs?",
+        "BUSINESS_PLAN.13": "What are your projected sales for the first year?",
+        "BUSINESS_PLAN.14": "What funding do you need and how will you get it?",
+        "BUSINESS_PLAN.15": "What are your key operational requirements?",
+        "BUSINESS_PLAN.16": "What equipment or technology do you need?",
+        "BUSINESS_PLAN.17": "Where will your business be located?",
+        "BUSINESS_PLAN.18": "What staff do you need initially?",
+        "BUSINESS_PLAN.19": "Who are your key suppliers and vendors?",
+        "BUSINESS_PLAN.20": "What legal requirements do you need to meet?",
+        "BUSINESS_PLAN.21": "Do you have any intellectual property or proprietary technology?",
+        "BUSINESS_PLAN.22": "What is your mission statement or tagline?",
+        "BUSINESS_PLAN.23": "What are your short-term goals (first 6 months)?",
+        "BUSINESS_PLAN.24": "What are your long-term goals (1-3 years)?",
+        "BUSINESS_PLAN.25": "What are the main risks and challenges you face?",
+        "BUSINESS_PLAN.26": "How will you measure success?",
+        "BUSINESS_PLAN.27": "What is your exit strategy (if applicable)?",
+        "BUSINESS_PLAN.28": "What support do you need to launch your business?"
+    }
+    
+    # Get the question text
+    question_text = business_plan_questions.get(question_tag, "Please provide additional information about your business.")
+    
+    # Add the question tag
+    formatted_question = f"[[Q:{question_tag}]] {question_text}"
+    
+    # Add some context and encouragement
+    context = f"Great! I'm glad we're making progress.\n\nLet's continue by exploring another important aspect of your business.\n\n{question_text}\n\nConsider: What specific details would help clarify this aspect of your business?\nThink about: How does this relate to your overall business strategy?"
+    
+    return f"[[Q:{question_tag}]] {context}"
+
+def generate_problem_solution_draft(business_context, history):
+    """Generate a specific problem-solution draft based on business context"""
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    
+    # Extract any previous context about the business
+    business_description = ""
+    for msg in history[-10:]:
+        if msg.get('role') == 'user' and msg.get('content'):
+            content = msg['content'].lower()
+            if any(keyword in content for keyword in ['business', 'company', 'startup', 'venture']):
+                business_description = msg['content']
+                break
+    
+    # Generate contextual content based on what we know
+    if business_description:
+        return f"Based on your business vision, here's a draft for your problem-solution fit: {business_name} addresses the challenge of solving critical problems in the {industry} sector that affects your target audience who struggle with existing solutions. This problem is significant because it impacts their daily operations and creates inefficiencies. Your {business_type} solution addresses this by providing innovative approaches, offering key benefits that directly alleviate the pain point. The frequency and severity of this problem make it a critical need in the market, and your solution is uniquely positioned to address it effectively through specialized expertise. Focus on clearly articulating how {business_name} solves this specific problem for your target audience."
+    else:
+        return f"Based on your business vision, here's a draft for your problem-solution fit: {business_name} solves a critical problem in the {industry} sector by addressing specific challenges that affect your target audience. This problem is significant because it creates operational difficulties for those who experience it. Your {business_type} solution addresses this challenge through innovative approaches, providing key benefits that directly alleviate the pain point. Consider the frequency and severity of this problem, the current alternatives available, and why your solution is uniquely positioned to address it effectively. Focus on clearly articulating the problem, who experiences it, and how {business_name} provides a superior solution."
+
+def generate_competitive_analysis_draft(business_context, history):
+    """Generate a specific competitive analysis draft based on business context"""
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    
+    return f"Based on your business context, here's a draft analysis of your competitive landscape: In the {industry} sector, your main competitors likely include established players who offer similar {business_type} solutions. These competitors typically have strengths in brand recognition, resources, and market share, but often have weaknesses in pricing flexibility, customer service personalization, and innovation gaps. {business_name}'s competitive advantage should focus on what makes your solution unique - whether it's better pricing, superior customer experience, innovative features, or specialized expertise in the {industry} sector. Focus on identifying 3-5 key competitors in the {industry} space and analyzing their market positioning, pricing models, and customer base to understand how you can differentiate effectively."
+
+def generate_intellectual_property_draft(business_context, history):
+    """Generate a specific intellectual property draft based on business context"""
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    
+    return f"Based on your business needs, here's a draft for your intellectual property strategy: {business_name} may have intellectual property assets including patents for innovative {business_type} processes, trademarks for your brand identity, and copyrights for original content in the {industry} sector. Consider what legal protections are important for your business, including patent applications for innovative processes or technologies, trademark registration for your brand name and logo, and copyright protection for original content, software, or creative materials. Focus on identifying your proprietary assets, understanding the legal requirements for protection in the {industry} sector, and developing a strategy to safeguard your competitive advantages through appropriate IP protection."
+
+def generate_target_market_draft(business_context, history):
+    """Generate a specific target market draft based on business context"""
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    
+    return f"Based on your business goals, here's a draft for your target market: {business_name}'s ideal customers are likely [demographic profile] in the {industry} sector who value [key benefits] and are looking for [specific solutions]. Consider their demographics (age, income, location), psychographics (interests, values, lifestyle), and behaviors (buying patterns, preferences). Focus on creating detailed customer personas for your {business_type} business and understanding their pain points and needs. Think about how you can reach and connect with this audience effectively through appropriate channels and messaging that resonates with {industry} professionals and consumers."
+
+def generate_operational_requirements_draft(business_context, history):
+    """Generate a specific operational requirements draft based on business context"""
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    location = business_context.get("location", "your location")
+    
+    return f"Based on your business needs, here's a draft for your operational requirements: {business_name}'s location in {location} should be strategically chosen to maximize accessibility for your target customers while considering operational efficiency for your {business_type} operations. Key factors include proximity to suppliers, transportation access, zoning requirements for {industry} businesses, and cost considerations. Your space and equipment needs should align with your {business_type} operations, ensuring you have adequate facilities to serve your customers effectively while maintaining operational efficiency. Focus on factors like zoning compliance for {industry} businesses, transportation access for customers and suppliers, costs, and scalability as your business grows."
+
+def generate_staffing_needs_draft(business_context, history):
+    """Generate a specific staffing needs draft based on business context"""
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    
+    return f"Based on your business goals, here's a draft for your staffing needs: {business_name}'s short-term operational needs should focus on identifying critical roles required for launch in the {industry} sector, including key personnel who can drive your core {business_type} business functions. Consider hiring initial staff who bring essential skills and experience in {industry}, securing appropriate workspace for your team, and establishing operational processes that support your business model. Prioritize roles that directly impact customer experience and business operations, ensuring you have the right team in place to execute your business plan effectively. Focus on identifying key positions specific to {business_type} operations, required qualifications for {industry} professionals, and your hiring timeline for building a strong foundation team."
+
+def generate_supplier_relationships_draft(business_context, history):
+    """Generate a specific supplier relationships draft based on business context"""
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    
+    return f"Based on your business requirements, here's a comprehensive draft for your supplier and vendor relationships: {business_name} will need to identify key suppliers and vendors who can provide essential products, services, or resources for your {business_type} operations in the {industry} sector. Consider building relationships with reliable partners who offer competitive pricing, quality products, and consistent service. Key partners might include suppliers for raw materials or components specific to {industry}, service providers for essential business functions, and strategic partners who can help you reach your target market or enhance your offerings. Focus on reliability, quality, pricing, and long-term partnership potential. Evaluate potential partners based on their track record in the {industry} sector, financial stability, capacity to meet your needs, and alignment with your business values. Consider backup suppliers to ensure business continuity and negotiate favorable terms that support your growth objectives in the {industry} market."

@@ -191,15 +191,90 @@ export default function ChatPage() {
     return verificationKeywords.some(keyword => lowerMessage.includes(keyword));
   };
 
+  // Function to extract guidance content from Support/Draft/Scrapping responses
+  const extractGuidanceContent = (message: string): string | null => {
+    if (!message) return null;
+    
+    // Look for Support command response
+    if (message.toLowerCase().includes("let's work through this together")) {
+      // Extract content between "Let's work through this together with some deeper context:" and "Verification:"
+      const startMarker = "Let's work through this together with some deeper context:";
+      const endMarker = "Verification:";
+      
+      const startIndex = message.indexOf(startMarker);
+      const endIndex = message.indexOf(endMarker);
+      
+      if (startIndex !== -1 && endIndex !== -1) {
+        const guidanceContent = message.substring(startIndex + startMarker.length, endIndex).trim();
+        return guidanceContent;
+      }
+    }
+    
+    // Look for Draft command response (updated to handle new format)
+    if (message.toLowerCase().includes("here's a draft")) {
+      // Extract content between the draft content and "Verification:"
+      const endMarker = "Verification:";
+      const endIndex = message.indexOf(endMarker);
+      
+      if (endIndex !== -1) {
+        // Find the start of the actual draft content (after any intro text)
+        const lines = message.substring(0, endIndex).split('\n');
+        let contentStartIndex = 0;
+        
+        // Find the line that starts with "Based on your business"
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].toLowerCase().includes("based on your business")) {
+            contentStartIndex = message.indexOf(lines[i]);
+            break;
+          }
+        }
+        
+        if (contentStartIndex !== -1) {
+          const guidanceContent = message.substring(contentStartIndex, endIndex).trim();
+          return guidanceContent;
+        }
+      }
+    }
+    
+    // Look for Scrapping command response
+    if (message.toLowerCase().includes("here's a refined version of your thoughts")) {
+      // Extract content between "Here's a refined version of your thoughts:" and "Verification:"
+      const startMarker = "Here's a refined version of your thoughts:";
+      const endMarker = "Verification:";
+      
+      const startIndex = message.indexOf(startMarker);
+      const endIndex = message.indexOf(endMarker);
+      
+      if (startIndex !== -1 && endIndex !== -1) {
+        const guidanceContent = message.substring(startIndex + startMarker.length, endIndex).trim();
+        return guidanceContent;
+      }
+    }
+    
+    return null;
+  };
+
   // Handle Accept button click
   const handleAccept = async () => {
     setShowVerificationButtons(false);
     setLoading(true);
     
     try {
+      // Extract the guidance content from the current question
+      // This contains the Support/Draft/Scrapping response that should be saved as the user's answer
+      const guidanceContent = extractGuidanceContent(currentQuestion);
+      
+      if (guidanceContent) {
+        // Save the guidance content as the user's answer to the current question
+        setHistory((prev) => [
+          ...prev,
+          { question: currentQuestion, answer: guidanceContent, questionNumber: currentQuestionNumber },
+        ]);
+      }
+      
       const {
         result: { reply, progress, web_search_status, immediate_response },
-      } = await fetchQuestion("Accept", sessionId!);
+      } = await fetchQuestion(guidanceContent || "Accept", sessionId!);
       const formatted = formatAngelMessage(reply);
       setCurrentQuestion(formatted);
       setProgress(progress);
@@ -223,9 +298,13 @@ export default function ChatPage() {
 
   // Handle Modify button click
   const handleModify = (currentText: string) => {
+    // Extract the guidance content from the current question
+    const guidanceContent = extractGuidanceContent(currentQuestion);
+    const contentToModify = guidanceContent || currentText;
+    
     setModifyModal({
       isOpen: true,
-      currentText: currentText
+      currentText: contentToModify
     });
   };
 

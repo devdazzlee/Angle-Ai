@@ -19,28 +19,36 @@ async def generate_full_business_plan(history):
             conversation_history.append(msg)
             content = msg.get('content', '').lower()
             
-            # Extract industry information
+            # Extract industry information - DYNAMIC APPROACH
             if any(keyword in content for keyword in ['industry', 'business type', 'sector', 'field']):
-                # Try to extract industry from content
-                if 'technology' in content:
-                    session_data['industry'] = 'technology'
-                elif 'food' in content or 'restaurant' in content:
-                    session_data['industry'] = 'food'
-                elif 'retail' in content:
-                    session_data['industry'] = 'retail'
-                elif 'consulting' in content:
-                    session_data['industry'] = 'consulting'
-                elif 'healthcare' in content:
-                    session_data['industry'] = 'healthcare'
-                elif 'education' in content:
-                    session_data['industry'] = 'education'
-                elif 'manufacturing' in content:
-                    session_data['industry'] = 'manufacturing'
-                elif 'real estate' in content:
-                    session_data['industry'] = 'real estate'
-                elif 'hospitality' in content:
-                    session_data['industry'] = 'hospitality'
-                else:
+                # Use AI model to dynamically identify industry
+                industry_prompt = f"""
+                Analyze this user input and extract the business industry or sector: "{content}"
+                
+                Return ONLY the industry name in a standardized format, or "general business" if unclear.
+                
+                Examples:
+                - "Tea Stall" → "Tea Stall"
+                - "AI Development" → "AI Development"
+                - "Food Service" → "Food Service"
+                - "Technology" → "Technology"
+                - "Healthcare" → "Healthcare"
+                
+                Return only the industry name:
+                """
+                
+                try:
+                    response = await client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": industry_prompt}],
+                        temperature=0.1,
+                        max_tokens=30
+                    )
+                    
+                    industry_result = response.choices[0].message.content.strip()
+                    session_data['industry'] = industry_result if industry_result else 'general business'
+                except Exception as e:
+                    print(f"Industry extraction failed: {e}")
                     session_data['industry'] = 'general business'
             
             # Extract location information
@@ -85,27 +93,36 @@ async def generate_full_roadmap_plan(history):
             conversation_history.append(msg)
             content = msg.get('content', '').lower()
             
-            # Extract industry information
+            # Extract industry information - DYNAMIC APPROACH
             if any(keyword in content for keyword in ['industry', 'business type', 'sector', 'field']):
-                if 'technology' in content:
-                    session_data['industry'] = 'technology'
-                elif 'food' in content or 'restaurant' in content:
-                    session_data['industry'] = 'food'
-                elif 'retail' in content:
-                    session_data['industry'] = 'retail'
-                elif 'consulting' in content:
-                    session_data['industry'] = 'consulting'
-                elif 'healthcare' in content:
-                    session_data['industry'] = 'healthcare'
-                elif 'education' in content:
-                    session_data['industry'] = 'education'
-                elif 'manufacturing' in content:
-                    session_data['industry'] = 'manufacturing'
-                elif 'real estate' in content:
-                    session_data['industry'] = 'real estate'
-                elif 'hospitality' in content:
-                    session_data['industry'] = 'hospitality'
-                else:
+                # Use AI model to dynamically identify industry
+                industry_prompt = f"""
+                Analyze this user input and extract the business industry or sector: "{content}"
+                
+                Return ONLY the industry name in a standardized format, or "general business" if unclear.
+                
+                Examples:
+                - "Tea Stall" → "Tea Stall"
+                - "AI Development" → "AI Development"
+                - "Food Service" → "Food Service"
+                - "Technology" → "Technology"
+                - "Healthcare" → "Healthcare"
+                
+                Return only the industry name:
+                """
+                
+                try:
+                    response = await client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": industry_prompt}],
+                        temperature=0.1,
+                        max_tokens=30
+                    )
+                    
+                    industry_result = response.choices[0].message.content.strip()
+                    session_data['industry'] = industry_result if industry_result else 'general business'
+                except Exception as e:
+                    print(f"Industry extraction failed: {e}")
                     session_data['industry'] = 'general business'
             
             # Extract location information
@@ -136,10 +153,10 @@ async def generate_full_roadmap_plan(history):
     
     print(f"[RESEARCH] Conducting deep research for {industry} roadmap in {location}")
     
-    # Multiple research queries for comprehensive roadmap analysis from authoritative sources
-    startup_timeline_research = await conduct_web_search(f"site:sba.gov startup launch timeline {industry} {location} {previous_year}")
-    regulatory_requirements = await conduct_web_search(f"site:sec.gov OR site:irs.gov {industry} regulatory requirements startup {location} {previous_year}")
-    funding_timeline = await conduct_web_search(f"site:forbes.com OR site:hbr.org {industry} funding timeline seed stage {previous_year}")
+    # Dynamic research queries based on actual industry - no hardcoded assumptions
+    startup_timeline_research = await conduct_web_search(f"startup launch timeline {industry} {location} {previous_year}")
+    regulatory_requirements = await conduct_web_search(f"{industry} regulatory requirements startup {location} {previous_year}")
+    funding_timeline = await conduct_web_search(f"{industry} funding timeline seed stage startup {previous_year}")
     market_entry_strategy = await conduct_web_search(f"site:bloomberg.com OR site:wsj.com {industry} market entry strategy startup {location} {previous_year}")
     government_resources = await conduct_web_search(f"site:gov {location} business formation requirements {industry} {previous_year}")
     academic_insights = await conduct_web_search(f"site:scholar.google.com OR site:jstor.org startup roadmap {industry} business planning {previous_year}")
@@ -518,29 +535,38 @@ async def generate_comprehensive_business_plan_summary(history):
             conversation_history.append(msg)
             content = msg.get('content', '').lower()
             
-            # Extract key business information
+            # Extract key business information - DYNAMIC APPROACH
             if any(keyword in content for keyword in ['business name', 'company name', 'venture name']):
                 session_data['business_name'] = msg.get('content', '').strip()
             elif any(keyword in content for keyword in ['industry', 'business type', 'sector']):
-                if 'technology' in content:
-                    session_data['industry'] = 'Technology'
-                elif 'food' in content or 'restaurant' in content:
-                    session_data['industry'] = 'Food & Beverage'
-                elif 'retail' in content:
-                    session_data['industry'] = 'Retail'
-                elif 'consulting' in content:
-                    session_data['industry'] = 'Consulting'
-                elif 'healthcare' in content:
-                    session_data['industry'] = 'Healthcare'
-                elif 'education' in content:
-                    session_data['industry'] = 'Education'
-                elif 'manufacturing' in content:
-                    session_data['industry'] = 'Manufacturing'
-                elif 'real estate' in content:
-                    session_data['industry'] = 'Real Estate'
-                elif 'hospitality' in content:
-                    session_data['industry'] = 'Hospitality'
-                else:
+                # Use AI model to dynamically identify industry
+                industry_prompt = f"""
+                Analyze this user input and extract the business industry or sector: "{content}"
+                
+                Return ONLY the industry name in a standardized format, or "General Business" if unclear.
+                
+                Examples:
+                - "Tea Stall" → "Tea Stall"
+                - "AI Development" → "AI Development"
+                - "Food Service" → "Food Service"
+                - "Technology" → "Technology"
+                - "Healthcare" → "Healthcare"
+                
+                Return only the industry name:
+                """
+                
+                try:
+                    response = await client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": industry_prompt}],
+                        temperature=0.1,
+                        max_tokens=30
+                    )
+                    
+                    industry_result = response.choices[0].message.content.strip()
+                    session_data['industry'] = industry_result if industry_result else 'General Business'
+                except Exception as e:
+                    print(f"Industry extraction failed: {e}")
                     session_data['industry'] = 'General Business'
             
             # Extract location information
