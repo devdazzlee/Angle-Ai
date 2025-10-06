@@ -35,8 +35,16 @@ interface ConversationPair {
 interface ProgressState {
   phase: "KYC" | "BUSINESS_PLAN" | "PLAN_TO_ROADMAP_TRANSITION" | "ROADMAP" | "ROADMAP_GENERATED" | "ROADMAP_TO_IMPLEMENTATION_TRANSITION" | "IMPLEMENTATION";
   answered: number;
+  phase_answered?: number;  // Phase-specific step count
   total: number;
   percent: number;
+  combined?: boolean;  // Flag for combined progress
+  phase_breakdown?: {
+    kyc_completed: number;
+    kyc_total: number;
+    bp_completed: number;
+    bp_total: number;
+  };
 }
 
 // Updated to include PLAN_TO_ROADMAP_TRANSITION phase
@@ -1506,8 +1514,10 @@ export default function ChatPage() {
   };
 
   // Use backend progress data directly to avoid calculation mismatches
-  const currentStep = progress.answered || 1;
-  const total = progress.total || QUESTION_COUNTS[progress.phase as keyof typeof QUESTION_COUNTS];
+  // Use phase-specific answered count for step display
+  const currentStep = progress.phase_answered || progress.answered || 1;
+  // Use phase-specific totals instead of combined totals for step display
+  const total = QUESTION_COUNTS[progress.phase as keyof typeof QUESTION_COUNTS];
   const percent = progress.percent || 1;
 
   // Console logging for calculated display values
@@ -1517,6 +1527,7 @@ export default function ChatPage() {
     percent: percent,
     progressPhase: progress.phase,
     progressAnswered: progress.answered,
+    progressPhaseAnswered: progress.phase_answered,
     progressTotal: progress.total,
     progressPercent: progress.percent,
     questionCounts: QUESTION_COUNTS
@@ -1752,20 +1763,32 @@ export default function ChatPage() {
                   🧭
                 </div>
                 <div className="hidden sm:block">
-                  <div className="text-base font-semibold text-gray-900">
-                    {progress.phase} Phase
-                  </div>
-                  <div className="text-gray-500 text-xs">
-                    {" "}
-                    Step {currentStep} of {total}
+                  <div className="flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border border-emerald-200 shadow-sm hover:shadow-md transition-all duration-300 hover:scale-[1.02]">
+                    <div className="relative">
+                      <div className="w-2 h-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full animate-pulse"></div>
+                      <div className="absolute inset-0 w-2 h-2 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-full animate-ping opacity-60"></div>
+                    </div>
+                    <span className="text-sm font-semibold text-transparent bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text">
+                      {progress.phase}
+                    </span>
+                    <div className="h-4 w-px bg-gradient-to-b from-emerald-300 to-teal-300"></div>
+                    <span className="text-sm font-medium text-gray-700">
+                      {currentStep} of {total}
+                    </span>
                   </div>
                 </div>
                 <div className="sm:hidden">
-                  <div className="text-sm font-semibold text-gray-900">
-                    {progress.phase}
-                  </div>
-                  <div className="text-gray-500 text-xs">
-                    {currentStep}/{total}
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-md border border-emerald-200 shadow-sm hover:shadow-md transition-all duration-300 hover:scale-[1.02]">
+                    <div className="relative">
+                      <div className="w-1.5 h-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full animate-pulse"></div>
+                      <div className="absolute inset-0 w-1.5 h-1.5 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-full animate-ping opacity-60"></div>
+                    </div>
+                    <span className="text-xs font-semibold text-transparent bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text">
+                      {progress.phase}
+                    </span>
+                    <span className="text-xs font-medium text-gray-700">
+                      {currentStep}/{total}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1791,7 +1814,12 @@ export default function ChatPage() {
               </button>
             </div>
 
-            <ProgressCircle progress={percent} phase={progress.phase} />
+            <ProgressCircle 
+              progress={percent} 
+              phase={progress.phase} 
+              combined={progress.combined}
+              phase_breakdown={progress.phase_breakdown}
+            />
 
             {showBusinessPlanButton && (
               <div className="mt-6 flex justify-center">

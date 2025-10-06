@@ -74,3 +74,99 @@ def calculate_phase_progress(current_phase: str, answered_count: int, current_ta
     
     print(f"📊 Final Progress Result: {result}")
     return result
+
+def calculate_combined_progress(current_phase: str, answered_count: int, current_tag: str = None) -> dict:
+    """
+    Calculate combined progress for KYC + Business Plan phases (65 total questions).
+    This provides an overall progress view that combines both phases.
+    """
+    print(f"🔍 Combined Progress Calculation Debug:")
+    print(f"  - current_phase: {current_phase}")
+    print(f"  - answered_count: {answered_count}")
+    print(f"  - current_tag: {current_tag}")
+    
+    # Define combined phase totals
+    COMBINED_TOTALS = {
+        "KYC": 19,
+        "BUSINESS_PLAN": 46,
+        "COMBINED_KYC_BP": 65,  # 19 + 46 = 65 total questions
+        "ROADMAP": 1,
+        "IMPLEMENTATION": 10
+    }
+    
+    # Calculate current step based on phase and question number
+    if current_tag and current_tag.startswith(current_phase + "."):
+        try:
+            question_num = int(current_tag.split(".")[1])
+            
+            if current_phase == "KYC":
+                # For KYC, current step is just the question number
+                current_step = question_num
+            elif current_phase == "BUSINESS_PLAN":
+                # For Business Plan, add KYC total (19) to current question number
+                current_step = 19 + question_num
+            else:
+                # For other phases, use answered_count as fallback
+                current_step = answered_count
+                
+            print(f"✅ Combined calculation: phase={current_phase}, question_num={question_num}, current_step={current_step}")
+        except (ValueError, IndexError):
+            # Fallback to answered_count if tag parsing fails
+            current_step = answered_count
+            print(f"❌ Tag parsing failed, using answered_count: {current_step}")
+    else:
+        # Fallback: Use answered_count if no valid tag
+        current_step = answered_count
+        print(f"⚠️ No valid tag found, using answered_count: {current_step}")
+    
+    # For KYC and Business Plan phases, use combined total (65)
+    if current_phase in ["KYC", "BUSINESS_PLAN"]:
+        total_combined = COMBINED_TOTALS["COMBINED_KYC_BP"]
+        print(f"  - Using combined total: {total_combined}")
+        
+        # Ensure current_step doesn't exceed combined total
+        current_step = min(current_step, total_combined)
+        print(f"  - final current_step: {current_step}")
+        
+        # Calculate percentage based on combined total
+        percent = max(1, min(100, round((current_step / total_combined) * 100)))
+        print(f"  - calculated percent: {percent}")
+        
+        # Calculate phase-specific step for display
+        if current_phase == "KYC":
+            phase_specific_step = question_num if current_tag and current_tag.startswith("KYC.") else min(current_step, 19)
+        elif current_phase == "BUSINESS_PLAN":
+            phase_specific_step = question_num if current_tag and current_tag.startswith("BUSINESS_PLAN.") else max(0, current_step - 19)
+        else:
+            phase_specific_step = current_step
+            
+        result = {
+            "phase": current_phase,
+            "answered": current_step,  # Combined step (1-65)
+            "phase_answered": phase_specific_step,  # Phase-specific step (1-19 for KYC, 1-46 for BP)
+            "total": total_combined,
+            "percent": percent,
+            "combined": True,  # Flag to indicate this is combined progress
+            "phase_breakdown": {
+                "kyc_completed": min(current_step, 19),
+                "kyc_total": 19,
+                "bp_completed": max(0, current_step - 19),
+                "bp_total": 46
+            }
+        }
+    else:
+        # For other phases, use regular phase calculation
+        total_in_phase = TOTALS_BY_PHASE[current_phase]
+        current_step = min(current_step, total_in_phase)
+        percent = max(1, min(100, round((current_step / total_in_phase) * 100)))
+        
+        result = {
+            "phase": current_phase,
+            "answered": current_step,
+            "total": total_in_phase,
+            "percent": percent,
+            "combined": False
+        }
+    
+    print(f"📊 Combined Progress Result: {result}")
+    return result

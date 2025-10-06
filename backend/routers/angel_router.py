@@ -4,7 +4,7 @@ from services.session_service import create_session, list_sessions, get_session,
 from services.chat_service import fetch_chat_history, save_chat_message, fetch_phase_chat_history
 from services.generate_plan_service import generate_full_business_plan, generate_full_roadmap_plan, generate_comprehensive_business_plan_summary, generate_implementation_insights, generate_service_provider_preview, generate_motivational_quote
 from services.angel_service import get_angel_reply, handle_roadmap_generation, handle_roadmap_to_implementation_transition
-from utils.progress import parse_tag, TOTALS_BY_PHASE, calculate_phase_progress, smart_trim_history
+from utils.progress import parse_tag, TOTALS_BY_PHASE, calculate_phase_progress, calculate_combined_progress, smart_trim_history
 from middlewares.auth import verify_auth_token
 from fastapi.middleware.cors import CORSMiddleware
 import re
@@ -267,9 +267,9 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
     print(f"  - current_tag: {current_tag}")
     print(f"  - session data: {session}")
     
-    # Calculate phase-specific progress
-    phase_progress = calculate_phase_progress(current_phase, answered_count, current_tag)
-    print(f"📊 Progress Calculation Output: {phase_progress}")
+    # Calculate combined progress for KYC and Business Plan phases
+    phase_progress = calculate_combined_progress(current_phase, answered_count, current_tag)
+    print(f"📊 Combined Progress Calculation Output: {phase_progress}")
     
     # Update session in DB (without phase_progress since it's calculated on the fly)
     await patch_session(session_id, {

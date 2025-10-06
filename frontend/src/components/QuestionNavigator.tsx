@@ -18,6 +18,13 @@ interface QuestionNavigatorProps {
     answered: number;
     total: number;
     percent: number;
+    combined?: boolean;
+    phase_breakdown?: {
+      kyc_completed: number;
+      kyc_total: number;
+      bp_completed: number;
+      bp_total: number;
+    };
   };
   onEditPlan?: () => void;
   onUploadPlan?: (file: File) => void;
@@ -66,24 +73,62 @@ const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
       )}
 
       {/* Original Progress Overview - Show for all phases */}
-      <div className="bg-white shadow-lg rounded-lg overflow-hidden border border-gray-100">
+      <div className="bg-white shadow-xl rounded-xl overflow-hidden border border-gray-100 hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
         <div className="p-4 border-b border-gray-100">
           <h3 className="text-lg font-semibold text-gray-800">Progress Overview</h3>
         </div>
 
         {/* Overall Progress */}
-        <div className="p-4 border-b border-gray-100">
-          <div className="mb-2 flex justify-between items-center">
-            <span className="text-sm font-medium text-gray-600">Overall Progress</span>
-            <span className="text-sm font-medium text-gray-600">
-              {currentProgress.answered} / {currentProgress.total}
-            </span>
+        <div className="p-4 border-b border-gray-100 bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
+          <div className="mb-3 flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
+              <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Overall Progress</span>
+            </div>
+            <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg shadow-sm border border-gray-200">
+              <span className="text-lg font-bold text-gray-900">
+                {currentProgress.answered}
+              </span>
+              <span className="text-sm text-gray-400 font-medium">/</span>
+              <span className="text-lg font-bold text-gray-700">
+                {currentProgress.total}
+              </span>
+            </div>
           </div>
-          <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-teal-500 rounded-full transition-all duration-300"
-              style={{ width: `${currentProgress.percent}%` }}
-            />
+          
+          {/* Compact Progress Bar */}
+          <div className="relative">
+            <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden shadow-inner border border-gray-200">
+              <div
+                className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-teal-500 rounded-full transition-all duration-1000 ease-out relative overflow-hidden"
+                style={{ width: `${currentProgress.percent}%` }}
+              >
+                {/* Shimmer Effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-40 animate-shimmer"></div>
+              </div>
+            </div>
+            
+            {/* Progress Percentage */}
+            <div className="mt-2 text-center">
+              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-teal-600 bg-clip-text text-transparent animate-gradient">
+                {Math.round(currentProgress.percent)}%
+              </span>
+              <div className="text-xs text-gray-500 mt-0.5 font-medium uppercase tracking-wide">
+                Complete
+              </div>
+            </div>
+            
+            {/* Compact Progress Milestones */}
+            <div className="mt-3 flex justify-between">
+              <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">
+                <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                <span className="text-xs font-medium text-blue-700 uppercase tracking-wide">KYC</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-purple-50 px-2 py-1 rounded-lg border border-purple-200">
+                <div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div>
+                <span className="text-xs font-medium text-purple-700 uppercase tracking-wide">BP</span>
+              </div>
+            </div>
           </div>
         </div>
 

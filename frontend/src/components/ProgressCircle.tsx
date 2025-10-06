@@ -45,7 +45,7 @@ const ProgressCircle: React.FC<ProgressCircleProps> = ({
           />
           <circle
             stroke="currentColor"
-            className="text-indigo-500 dark:text-indigo-400"
+            className="text-emerald-500"
             fill="transparent"
             strokeWidth={stroke}
             strokeDasharray={`${circumference} ${circumference}`}
@@ -60,10 +60,10 @@ const ProgressCircle: React.FC<ProgressCircleProps> = ({
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-1">
-          <span className="text-base font-semibold text-indigo-600 dark:text-indigo-400">
+          <span className="text-base font-semibold text-emerald-600">
             {Math.round(progress)}%
           </span>
-          <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+          <span className="text-xs font-medium text-gray-600">
             {phaseShortMap[phase] || phase}
           </span>
         </div>
