@@ -51,7 +51,7 @@ interface ProgressState {
 
 const QUESTION_COUNTS = {
   KYC: 19,  // Now 19 questions (removed privacy question)
-  BUSINESS_PLAN: 2,  // Reduced from 46 to 2 for testing
+  BUSINESS_PLAN: 46,  // Restored to full 46 questions
   ROADMAP: 1,
   IMPLEMENTATION: 10,
 };
