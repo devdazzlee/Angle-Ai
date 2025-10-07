@@ -4,6 +4,13 @@ interface ProgressCircleProps {
   progress: number; // 0 - 100
   phase: string;
   position?: "left" | "right";
+  combined?: boolean;
+  phase_breakdown?: {
+    kyc_completed: number;
+    kyc_total: number;
+    bp_completed: number;
+    bp_total: number;
+  };
 }
 
 const phaseShortMap: Record<string, string> = {
@@ -17,6 +24,8 @@ const ProgressCircle: React.FC<ProgressCircleProps> = ({
   progress,
   phase,
   position = "right",
+  combined = false,
+  phase_breakdown,
 }) => {
   const radius = 50;
   const stroke = 6;
