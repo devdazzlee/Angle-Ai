@@ -3,7 +3,11 @@ import os
 import json
 import re
 from datetime import datetime
+from dotenv import load_dotenv
 from utils.constant import ANGEL_SYSTEM_PROMPT
+
+# Load environment variables
+load_dotenv()
 
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -392,7 +396,7 @@ def suggest_draft_if_relevant(reply, session_data, user_input, history):
         
         if user_has_relevant_info and not has_existing_tip:
             # Add suggestion to use Draft
-            draft_suggestion = f"\n\n💡 **Quick Tip**: Based on some info you've previously entered, you can also select **\"Draft\"** and I'll use that information to create a draft answer for you to review and save you some time."
+            draft_suggestion = "\n\n💡 **Quick Tip**: Based on some info you've previously entered, you can also select **\"Draft\"** and I'll use that information to create a draft answer for you to review and save you some time."
             reply += draft_suggestion
     
     return reply
@@ -2502,8 +2506,12 @@ async def handle_competitor_research_request(user_input, business_context, histo
     
     # Generate comprehensive competitor analysis
     if competitor_research_results:
+        research_text = ""
+        for r in competitor_research_results:
+            research_text += f"Query: {r['query']}\nResult: {r['result']}\n\n"
+        
         analysis_prompt = f"""
-        Based on the following research results, provide a comprehensive competitor analysis for a business in the {industry} industry:
+        Based on the following research results, provide a comprehensive competitor analysis for a business in the {industry} industry:                         
         
         Business Context:
         - Industry: {industry}
@@ -2512,7 +2520,7 @@ async def handle_competitor_research_request(user_input, business_context, histo
         - Business Name: {business_name}
         
         Research Results:
-        {chr(10).join([f"Query: {r['query']}\nResult: {r['result']}\n" for r in competitor_research_results])}
+        {research_text}
         
         Please provide:
         1. Main competitors identified

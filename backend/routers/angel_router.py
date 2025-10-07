@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, Depends, UploadFile, File
 from schemas.angel_schemas import ChatRequestSchema, CreateSessionSchema
 from services.session_service import create_session, list_sessions, get_session, patch_session
 from services.chat_service import fetch_chat_history, save_chat_message, fetch_phase_chat_history
+from services.business_context_service import extract_and_store_business_context, get_business_context_summary, update_session_progress
 from services.generate_plan_service import generate_full_business_plan, generate_full_roadmap_plan, generate_comprehensive_business_plan_summary, generate_implementation_insights, generate_service_provider_preview, generate_motivational_quote
 from services.angel_service import get_angel_reply, handle_roadmap_generation, handle_roadmap_to_implementation_transition
 from utils.progress import parse_tag, TOTALS_BY_PHASE, calculate_phase_progress, calculate_combined_progress, smart_trim_history
@@ -42,8 +43,9 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
     session = await get_session(session_id, user_id)
     history = await fetch_chat_history(session_id)
 
-    # Save user message
-    await save_chat_message(session_id, user_id, "user", payload.content)
+    # Save user message with phase context
+    current_phase = session.get("current_phase", "KYC")
+    await save_chat_message(session_id, user_id, "user", payload.content, phase=current_phase)
 
     # Get AI reply
     angel_response = await get_angel_reply({"role": "user", "content": payload.content}, history, session)
@@ -65,8 +67,8 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
         business_plan_summary = None
         session_update = None
 
-    # Save assistant reply
-    await save_chat_message(session_id, user_id, "assistant", assistant_reply)
+    # Save assistant reply with phase context
+    await save_chat_message(session_id, user_id, "assistant", assistant_reply, phase=current_phase)
 
     # Handle session updates (e.g., from Accept responses)
     if session_update:
@@ -271,12 +273,20 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
     phase_progress = calculate_combined_progress(current_phase, answered_count, current_tag)
     print(f"📊 Combined Progress Calculation Output: {phase_progress}")
     
-    # Update session in DB (without phase_progress since it's calculated on the fly)
-    await patch_session(session_id, {
-        "asked_q": session["asked_q"],
-        "answered_count": session["answered_count"],
-        "current_phase": session["current_phase"]
-    })
+    # Extract and store business context from user response
+    if tag and not is_command_response:
+        await extract_and_store_business_context(session_id, user_id, tag, payload.content)
+    
+    # Update session with enhanced progress tracking
+    if tag and not is_command_response:
+        await update_session_progress(session_id, user_id, tag, session["answered_count"])
+    else:
+        # Update session in DB for command responses
+        await patch_session(session_id, {
+            "asked_q": session["asked_q"],
+            "answered_count": session["answered_count"],
+            "current_phase": session["current_phase"]
+        })
 
     # Clean response
     display_reply = re.sub(r'Question \d+ of \d+ \(\d+%\):', '', assistant_reply, flags=re.IGNORECASE)

@@ -1,3 +1,7 @@
+# Load environment variables first
+from dotenv import load_dotenv
+load_dotenv()
+
 # import logging
 # logging.basicConfig(level=logging.DEBUG)
 import os
