@@ -47,6 +47,7 @@ origins = [
     "http://localhost:3000",
     "http://localhost",
     "http://localhost:8080",
+    "https://founder-ai-hkh6fgd8abangza5.canadacentral-01.azurewebsites.net",
 ]
 
 app.add_middleware(
