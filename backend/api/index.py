@@ -25,6 +25,7 @@ origins = [
     "http://localhost:3000",
     "http://localhost",
     "http://localhost:8080",
+    "https://founder-ai-hkh6fgd8abangza5.canadacentral-01.azurewebsites.net",
 ]
 
 # ✅ CORS Support
@@ -71,3 +72,4 @@ app.add_exception_handler(AuthApiError, supabase_auth_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
