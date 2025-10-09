@@ -67,6 +67,56 @@ WEB SEARCH GUIDELINES:
 
 To use web search, include in your response: WEBSEARCH_QUERY: [your search query]"""
 
+async def should_show_accept_modify_buttons(ai_response: str, user_last_input: str = "") -> dict:
+    """Use AI to intelligently determine if Accept/Modify buttons should be shown"""
+    try:
+        detection_prompt = f"""
+        Analyze this AI assistant response and determine if it should show "Accept" and "Modify" buttons to the user.
+        
+        AI Response: "{ai_response[:800]}"
+        User's Last Input: "{user_last_input}"
+        
+        Show Accept/Modify buttons if the response is:
+        1. A draft answer or guidance that user might want to accept or edit
+        2. A substantial, actionable response (400+ words) with detailed content
+        3. A response to user's request for unique/different/better/detailed content
+        4. Support/Draft/Scrapping type responses
+        5. Structured content with sections that looks like an answer (not just a question)
+        
+        Do NOT show buttons if:
+        1. It's just asking the next question without substantial answer content
+        2. It's a short acknowledgment or transition message
+        3. Response length is less than 300 characters
+        
+        Respond with ONLY "YES" or "NO"
+        """
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": detection_prompt}],
+            temperature=0.1,
+            max_tokens=5,
+            timeout=2.0
+        )
+        
+        decision = response.choices[0].message.content.strip().upper()
+        should_show = decision == "YES"
+        
+        print(f"🤖 AI Detection: Should show buttons? {should_show} (Response length: {len(ai_response)})")
+        
+        return {
+            "show_buttons": should_show,
+            "content_length": len(ai_response)
+        }
+    except Exception as e:
+        print(f"AI button detection failed: {e}, falling back to heuristic")
+        # Fallback to simple heuristic if AI fails
+        is_substantial = len(ai_response) > 500 and "**" in ai_response
+        return {
+            "show_buttons": is_substantial,
+            "content_length": len(ai_response)
+        }
+
 async def conduct_web_search(query):
     """Conduct web search using OpenAI's web search tool with progress indication"""
     try:
@@ -1465,7 +1515,7 @@ Do NOT include question numbers, progress percentages, or step counts in your re
         elif user_content.lower() == "support":
             reply_content = await handle_support_command("", history, session_data)
         elif user_content.lower() == "draft more":
-            reply_content = handle_draft_more_command("", history, session_data)
+            reply_content = await handle_draft_more_command("", history, session_data)
         else:
             # Fallback to normal AI generation
             reply_content = "I understand you'd like to use a command. Please try again."
@@ -1699,11 +1749,15 @@ Here's what I've captured so far: [summary]. Does this look accurate to you? If 
                 pass
     
     
+    # Use AI to determine if Accept/Modify buttons should be shown
+    button_detection = await should_show_accept_modify_buttons(reply_content, user_content)
+    
     return {
         "reply": reply_content,
         "web_search_status": web_search_status,
         "immediate_response": immediate_response,
-        "patch_session": patch_session if patch_session else None
+        "patch_session": patch_session if patch_session else None,
+        "show_accept_modify": button_detection.get("show_buttons", False)
     }
 
 async def handle_draft_command(reply, history, session_data=None):
@@ -2436,7 +2490,7 @@ async def generate_support_content(history, business_context, current_question="
     
     
 
-def handle_draft_more_command(reply, history, session_data=None):
+async def handle_draft_more_command(reply, history, session_data=None):
     """Handle the Draft More command to create additional content"""
     # Extract business context for verification
     business_context = extract_business_context_from_history(history)
@@ -2445,18 +2499,89 @@ def handle_draft_more_command(reply, history, session_data=None):
     current_question = get_current_question_context(history)
     
     # Generate additional content based on current question
-    additional_content = generate_additional_draft_content(history, business_context, current_question)
+    additional_content = await generate_additional_draft_content(history, business_context, current_question)
     
-    draft_more_response = f"I'll create additional content for you:\n\n{additional_content}\n\n"
+    # Use consistent format with "Here's a draft" to trigger button detection
+    draft_more_response = f"Here's a draft for you:\n\n{additional_content}\n\n"
     
     return draft_more_response
 
-def generate_additional_draft_content(history, business_context, current_question=""):
-    """Generate additional draft content based on current question"""
+async def generate_additional_draft_content(history, business_context, current_question=""):
+    """Generate additional draft content based on current question using AI"""
     business_name = business_context.get("business_name", "your business")
     industry = business_context.get("industry", "your industry")
     business_type = business_context.get("business_type", "your business type")
+    location = business_context.get("location", "your location")
     
+    # Extract previous answers from history for better context
+    previous_answers = []
+    for msg in history[-10:]:
+        if msg.get('role') == 'user' and len(msg.get('content', '')) > 20:
+            content = msg.get('content', '')
+            # Skip command words
+            if content.lower() not in ['support', 'draft', 'scrapping', 'scraping', 'accept', 'modify', 'draft more']:
+                previous_answers.append(content[:200])
+    
+    # Use AI to generate enhanced additional content
+    draft_more_prompt = f"""
+    The user requested "Draft More" - they want additional, enhanced content on top of what was already provided.
+    
+    Current Question: "{current_question}"
+    
+    Business Context:
+    - Business Name: {business_name}
+    - Industry: {industry}
+    - Business Type: {business_type}
+    - Location: {location}
+    
+    Previous Context:
+    {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
+    
+    Generate ENHANCED, ADDITIONAL content that:
+    1. Takes the original answer to the next level with MORE detail
+    2. Adds 3-5 UNIQUE angles or perspectives not typically considered
+    3. Provides ADVANCED strategic insights specific to {industry} in {location}
+    4. Includes innovative ideas and creative approaches
+    5. Offers cutting-edge industry trends and best practices (2024-2025)
+    6. Makes it stand out with unique value propositions
+    7. Is comprehensive (400-600 words) and highly actionable
+    
+    Structure your enhanced draft with:
+    **Enhanced Main Content:**
+    [Take the original concept and elevate it with unique insights]
+    
+    **Unique Angles & Innovation:**
+    [3-5 creative approaches that differentiate from competitors]
+    
+    **Advanced Strategic Insights:**
+    [Deep industry-specific strategies for {industry}]
+    
+    **Implementation Roadmap:**
+    [Detailed 5-7 step plan with specifics]
+    
+    **Competitive Edge Factors:**
+    [What makes this approach uniquely powerful]
+    
+    Make this draft MORE creative, MORE detailed, and MORE strategic than a standard response. Think outside the box!
+    """
+    
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": draft_more_prompt}],
+            temperature=0.4,  # Slightly higher for more creativity
+            max_tokens=1500
+        )
+        
+        enhanced_content = response.choices[0].message.content
+        print(f"🔍 DEBUG - AI-generated enhanced draft length: {len(enhanced_content)} characters")
+        return enhanced_content
+    except Exception as e:
+        print(f"AI enhanced draft generation failed: {e}, falling back to template")
+        # Fallback to template if AI fails
+        pass
+    
+    # Fallback templates if AI generation fails
     if any(keyword in current_question.lower() for keyword in ['target market', 'demographics', 'psychographics', 'behaviors', 'ideal customer']):
         return f"""Here's additional detailed content for your target market strategy:
 

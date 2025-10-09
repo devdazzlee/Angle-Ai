@@ -56,6 +56,7 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
         transition_phase = angel_response.get("transition_phase", None)
         business_plan_summary = angel_response.get("business_plan_summary", None)
         session_update = angel_response.get("patch_session", None)
+        show_accept_modify = angel_response.get("show_accept_modify", False)
     else:
         # Backward compatibility
         assistant_reply = angel_response
@@ -64,6 +65,7 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
         transition_phase = None
         business_plan_summary = None
         session_update = None
+        show_accept_modify = False
 
     # Save assistant reply
     await save_chat_message(session_id, user_id, "assistant", assistant_reply)
@@ -335,7 +337,8 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
             "progress": progress_info,
             "session_id": session_id,
             "web_search_status": web_search_status,
-            "immediate_response": immediate_response
+            "immediate_response": immediate_response,
+            "show_accept_modify": show_accept_modify
         }
     }
 
