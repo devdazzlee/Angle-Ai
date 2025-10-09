@@ -56,6 +56,7 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
         transition_phase = angel_response.get("transition_phase", None)
         business_plan_summary = angel_response.get("business_plan_summary", None)
         session_update = angel_response.get("patch_session", None)
+        show_accept_modify = angel_response.get("show_accept_modify", False)
     else:
         # Backward compatibility
         assistant_reply = angel_response
@@ -64,6 +65,7 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
         transition_phase = None
         business_plan_summary = None
         session_update = None
+        show_accept_modify = False
 
     # Save assistant reply
     await save_chat_message(session_id, user_id, "assistant", assistant_reply)
@@ -216,6 +218,21 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
                 current_phase, current_num = tag.split(".")
                 current_num = int(current_num)
                 
+                # Check if tag matches "Question X" in the message text
+                question_num_match = re.search(r'Question\s+(\d+)(?:\s+of\s+\d+)?', assistant_reply)
+                if question_num_match:
+                    message_question_num = int(question_num_match.group(1))
+                    if message_question_num != current_num:
+                        print(f"⚠️ WARNING: Tag mismatch detected!")
+                        print(f"  Message says: 'Question {message_question_num}'")
+                        print(f"  Tag says: {tag} (question {current_num})")
+                        print(f"  Using message question number as source of truth")
+                        # Use the message question number
+                        corrected_tag = f"{current_phase}.{message_question_num:02d}"
+                        print(f"🔧 Correcting tag from {tag} to {corrected_tag}")
+                        tag = corrected_tag
+                        current_num = message_question_num
+                
                 # Check for backwards progression
                 if prev_phase == current_phase and current_num < prev_num:
                     print(f"⚠️ WARNING: Backwards question progression detected!")
@@ -256,7 +273,8 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
         if is_command_response:
             print(f"🔧 Command response - maintaining current session state without tag updates")
 
-    # Calculate progress based on current phase and answered count
+    # Calculate progress based on current phase and CURRENT TAG (not answered_count)
+    # CRITICAL: Use asked_q as the source of truth for what question we're on
     current_phase = session["current_phase"]
     answered_count = session["answered_count"]
     current_tag = session.get("asked_q")
@@ -264,12 +282,26 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
     print(f"📈 Progress Calculation Input:")
     print(f"  - current_phase: {current_phase}")
     print(f"  - answered_count: {answered_count}")
-    print(f"  - current_tag: {current_tag}")
+    print(f"  - current_tag (asked_q): {current_tag}")
+    print(f"  - Parsed tag from reply: {tag}")
     print(f"  - session data: {session}")
     
-    # Calculate combined progress for KYC and Business Plan phases
-    phase_progress = calculate_combined_progress(current_phase, answered_count, current_tag)
-    print(f"📊 Combined Progress Calculation Output: {phase_progress}")
+    # Calculate phase-specific progress for phase indicator
+    phase_progress = calculate_phase_progress(current_phase, answered_count, current_tag)
+    print(f"📊 Phase Progress Output: {phase_progress}")
+    
+    # For KYC and Business Plan phases, also calculate combined progress (Overall Progress)
+    if current_phase in ["KYC", "BUSINESS_PLAN"]:
+        combined_progress = calculate_combined_progress(current_phase, answered_count, current_tag)
+        print(f"📊 Combined Progress Output (for Overall Progress): {combined_progress}")
+        # Add combined progress info to phase_progress for frontend
+        phase_progress["overall_progress"] = {
+            "answered": combined_progress["answered"],
+            "total": combined_progress["total"],
+            "percent": combined_progress["percent"]
+        }
+    
+    print(f"📊 Final Progress Data Sent to Frontend: {phase_progress}")
     
     # Update session in DB (without phase_progress since it's calculated on the fly)
     await patch_session(session_id, {
@@ -305,7 +337,8 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
             "progress": progress_info,
             "session_id": session_id,
             "web_search_status": web_search_status,
-            "immediate_response": immediate_response
+            "immediate_response": immediate_response,
+            "show_accept_modify": show_accept_modify
         }
     }
 

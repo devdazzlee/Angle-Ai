@@ -67,6 +67,56 @@ WEB SEARCH GUIDELINES:
 
 To use web search, include in your response: WEBSEARCH_QUERY: [your search query]"""
 
+async def should_show_accept_modify_buttons(ai_response: str, user_last_input: str = "") -> dict:
+    """Use AI to intelligently determine if Accept/Modify buttons should be shown"""
+    try:
+        detection_prompt = f"""
+        Analyze this AI assistant response and determine if it should show "Accept" and "Modify" buttons to the user.
+        
+        AI Response: "{ai_response[:800]}"
+        User's Last Input: "{user_last_input}"
+        
+        Show Accept/Modify buttons if the response is:
+        1. A draft answer or guidance that user might want to accept or edit
+        2. A substantial, actionable response (400+ words) with detailed content
+        3. A response to user's request for unique/different/better/detailed content
+        4. Support/Draft/Scrapping type responses
+        5. Structured content with sections that looks like an answer (not just a question)
+        
+        Do NOT show buttons if:
+        1. It's just asking the next question without substantial answer content
+        2. It's a short acknowledgment or transition message
+        3. Response length is less than 300 characters
+        
+        Respond with ONLY "YES" or "NO"
+        """
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": detection_prompt}],
+            temperature=0.1,
+            max_tokens=5,
+            timeout=2.0
+        )
+        
+        decision = response.choices[0].message.content.strip().upper()
+        should_show = decision == "YES"
+        
+        print(f"🤖 AI Detection: Should show buttons? {should_show} (Response length: {len(ai_response)})")
+        
+        return {
+            "show_buttons": should_show,
+            "content_length": len(ai_response)
+        }
+    except Exception as e:
+        print(f"AI button detection failed: {e}, falling back to heuristic")
+        # Fallback to simple heuristic if AI fails
+        is_substantial = len(ai_response) > 500 and "**" in ai_response
+        return {
+            "show_buttons": is_substantial,
+            "content_length": len(ai_response)
+        }
+
 async def conduct_web_search(query):
     """Conduct web search using OpenAI's web search tool with progress indication"""
     try:
@@ -1108,36 +1158,45 @@ async def get_angel_reply(user_msg, history, session_data=None):
             return critique_feedback
     
     # Define formatting instruction at the top to avoid UnboundLocalError
+    # Get current phase and question info for Business Plan numbering
+    current_phase = session_data.get("current_phase", "KYC") if session_data else "KYC"
+    asked_q = session_data.get("asked_q", "KYC.01") if session_data else "KYC.01"
+    
+    # Calculate current question number for Business Plan phase
+    # asked_q represents the CURRENT question being asked, not the next one
+    question_number_display = ""
+    if current_phase == "BUSINESS_PLAN" and "." in asked_q:
+        try:
+            current_num = int(asked_q.split(".")[1])
+            question_number_display = f"Question {current_num}"
+        except (ValueError, IndexError):
+            question_number_display = ""
+    
     FORMATTING_INSTRUCTION = f"""
 CRITICAL FORMATTING RULES - FOLLOW EXACTLY:
 
 1. ALWAYS start with a brief acknowledgment (1-2 sentences max)
 2. Add a blank line for visual separation
-3. Present the question in a clear, structured format:
+3. {f"BUSINESS PLAN: Include '{question_number_display}' on its own line after acknowledgment and before question" if question_number_display else "Present the question in a clear, structured format"}
+4. Present the question in a clear, structured format:
 
 For YES/NO questions:
 "That's great, {user_name}!
-
+{chr(10) + question_number_display + chr(10) if question_number_display else ""}
 Have you started a business before?
 • Yes
 • No"
 
 For multiple choice questions:
 "That's perfect, {user_name}!
+{chr(10) + question_number_display + chr(10) if question_number_display else ""}
+What's your current work situation?"
 
-What's your current work situation?
-• Full-time employed
-• Part-time
-• Student
-• Unemployed
-• Self-employed/freelancer
-• Other"
-
-IMPORTANT: ALWAYS use regular bullets (•) for multiple choice options, NEVER use circle bullets (○)
+NOTE: Do NOT list option bullets in your message. The UI displays clickable option buttons.
 
 For rating questions:
 "That's helpful, {user_name}!
-
+{chr(10) + question_number_display + chr(10) if question_number_display else ""}
 How comfortable are you with business planning?
 ○ ○ ○ ○ ○
 1  2  3  4  5"
@@ -1150,33 +1209,26 @@ Here's what I've captured so far:
 
 Does this look accurate to you? If not, please let me know where you'd like to modify and we'll work through this some more."
 
-❌ NEVER DO THIS: 
-"What's your current work situation? Full-time employed Part-time Student Unemployed Self-employed/freelancer Other"
-"Have you started a business before? Yes / No"
+❌ NEVER LIST OPTIONS IN YOUR MESSAGE: 
+"What's your current work situation? • Full-time • Part-time • Student..."
+"Will your business be primarily: • Online • Brick-and-mortar • Mix of both"
 
-✅ ALWAYS DO THIS: 
-"What's your current work situation?
-• Full-time employed
-• Part-time
-• Student
-• Unemployed
-• Self-employed/freelancer
-• Other"
+✅ CORRECT - ASK CLEANLY WITHOUT OPTIONS: 
+"What's your current work situation:"
+"Will your business be primarily:"
 
-"Have you started a business before?
-• Yes
-• No"
-
-CRITICAL: Use regular bullets (•) for ALL multiple choice options, never circle bullets (○)
+CRITICAL: The UI displays option buttons automatically. Do NOT include option lists in your message text.
 
 BUSINESS PLAN SPECIFIC RULES:
 • Ask ONE question at a time in EXACT sequential order
+{f"• CRITICAL: Include '{question_number_display}' on its own line after acknowledgment" if question_number_display else ""}
 • After every 3-4 questions, provide verification step
 • Wait for user acknowledgment before proceeding
 • Never combine questions or skip verification steps
 • Each question must be on its own line with proper spacing
 • Use verification format: "Here's what I've captured so far: [summary]. Does this look accurate to you?"
 • NEVER mold user answers into mission, vision, USP without explicit verification
+• Do NOT list option bullets in your message - UI shows clickable buttons for multiple-choice questions
 • Start with BUSINESS_PLAN.01 and proceed sequentially
 • Do NOT jump to later questions or combine multiple questions
 
@@ -1424,16 +1476,26 @@ Do NOT include question numbers, progress percentages, or step counts in your re
     # Check if this is a command that should not generate new questions
     is_command_response = user_content.lower() in ["draft", "support", "scrapping", "scraping", "draft more"] or user_content.lower().startswith("scrapping:")
     
+    # Check if this is an "Accept" command from Support/Draft/Scrapping
+    is_accept_command = user_content.lower().strip() == "accept"
+    
+    # Handle Accept command - treat as a regular answer to move to next question
+    if is_accept_command and session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
+        print(f"✅ Accept command detected - treating as answer to move to next question")
+        # Let it pass through to normal AI processing which will move to the next question
+        # Don't bypass AI generation - we want to get the next question
+        pass
+    
     # For commands, bypass AI generation and provide direct responses
-    if is_command_response and session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
+    elif is_command_response and session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
         print(f"🔧 Command detected: {user_content.lower()} - bypassing AI generation to prevent question skipping")
         
         # Generate direct command response without AI
         if user_content.lower() == "draft":
-            reply_content = handle_draft_command("", history, session_data)
+            reply_content = await handle_draft_command("", history, session_data)
         elif user_content.lower().startswith("scrapping:"):
             notes = user_content[10:].strip()
-            scrapping_result = handle_scrapping_command("", notes, history, session_data)
+            scrapping_result = await handle_scrapping_command("", notes, history, session_data)
             # If web search is needed, let the main function handle it
             if scrapping_result.get("web_search_status", {}).get("is_searching"):
                 needs_web_search = True
@@ -1442,7 +1504,7 @@ Do NOT include question numbers, progress percentages, or step counts in your re
             else:
                 return scrapping_result
         elif user_content.lower() in ["scrapping", "scraping"]:
-            scrapping_result = handle_scrapping_command("", "", history, session_data)
+            scrapping_result = await handle_scrapping_command("", "", history, session_data)
             # If web search is needed, let the main function handle it
             if scrapping_result.get("web_search_status", {}).get("is_searching"):
                 needs_web_search = True
@@ -1451,9 +1513,9 @@ Do NOT include question numbers, progress percentages, or step counts in your re
             else:
                 return scrapping_result
         elif user_content.lower() == "support":
-            reply_content = handle_support_command("", history, session_data)
+            reply_content = await handle_support_command("", history, session_data)
         elif user_content.lower() == "draft more":
-            reply_content = handle_draft_more_command("", history, session_data)
+            reply_content = await handle_draft_more_command("", history, session_data)
         else:
             # Fallback to normal AI generation
             reply_content = "I understand you'd like to use a command. Please try again."
@@ -1505,6 +1567,15 @@ Do NOT include question numbers, progress percentages, or step counts in your re
             except (ValueError, IndexError):
                 pass
         
+        # Calculate question number for display in session context
+        next_q_display = ""
+        if current_phase == "BUSINESS_PLAN":
+            try:
+                q_num = int(next_question_num)
+                next_q_display = f"Question {q_num}"
+            except (ValueError, TypeError):
+                next_q_display = ""
+        
         session_context = f"""
 CURRENT SESSION STATE:
 - Current Phase: {current_phase}
@@ -1518,13 +1589,14 @@ CRITICAL INSTRUCTIONS:
 3. The next question should be {current_phase}.{next_question_num}
 4. Only ask ONE question at a time
 5. Use the proper tag format: [[Q:{current_phase}.{next_question_num}]]
-6. Do NOT include "Question X" text in your response - just ask the question directly
+{f"6. YOU MUST include '{next_q_display}' on its own line in your response (after acknowledgment, before question)" if next_q_display else "6. Continue with the next sequential question"}
 7. Do NOT ask about business plan drafting or other phases - stay in {current_phase} phase
 8. Continue with the next sequential question in the {current_phase} phase
 9. NEVER skip questions - ask them in exact sequential order
 10. If user provides an answer, acknowledge it and ask the next question
 11. If user uses Support/Draft/Scrapping commands, provide help but then ask the same question again
 12. Do NOT jump to random questions - follow the exact sequence
+13. Do NOT list option bullets in your message - the UI displays clickable option buttons
 
 """
         msgs.append({"role": "system", "content": session_context})
@@ -1544,9 +1616,8 @@ CRITICAL INSTRUCTIONS:
 
     reply_content = response.choices[0].message.content
     
-    # Remove any "Question X" text that AI might have included despite instructions
-    reply_content = re.sub(r'Question \d+', '', reply_content, flags=re.IGNORECASE)
-    reply_content = re.sub(r'\n\s*\n', '\n\n', reply_content)  # Clean up extra newlines
+    # Clean up extra newlines (keep "Question X of 46" format for Business Plan)
+    reply_content = re.sub(r'\n{3,}', '\n\n', reply_content)  # Clean up 3+ newlines to 2
     
     # Handle remaining commands (kickstart, contact) that weren't processed earlier
     current_phase = session_data.get("current_phase", "") if session_data else ""
@@ -1678,14 +1749,18 @@ Here's what I've captured so far: [summary]. Does this look accurate to you? If 
                 pass
     
     
+    # Use AI to determine if Accept/Modify buttons should be shown
+    button_detection = await should_show_accept_modify_buttons(reply_content, user_content)
+    
     return {
         "reply": reply_content,
         "web_search_status": web_search_status,
         "immediate_response": immediate_response,
-        "patch_session": patch_session if patch_session else None
+        "patch_session": patch_session if patch_session else None,
+        "show_accept_modify": button_detection.get("show_buttons", False)
     }
 
-def handle_draft_command(reply, history, session_data=None):
+async def handle_draft_command(reply, history, session_data=None):
     """Handle the Draft command with comprehensive response generation"""
     # Extract context from conversation history
     context_summary = extract_conversation_context(history)
@@ -1695,10 +1770,10 @@ def handle_draft_command(reply, history, session_data=None):
     current_question = get_current_question_context(history)
     
     # Generate draft content based on conversation history and current question
-    draft_content = generate_draft_content(history, business_context, current_question)
+    draft_content = await generate_draft_content(history, business_context, current_question)
     
-    # Create a comprehensive draft response
-    draft_response = f"{draft_content}\n\n"
+    # Create a comprehensive draft response with clear heading
+    draft_response = f"Here's a draft for you:\n\n{draft_content}\n\n"
     
     return draft_response
 
@@ -1768,7 +1843,7 @@ def get_question_topic(current_question):
         print("🔍 DEBUG - No specific topic detected, using default business planning")
         return "business planning"
 
-def generate_draft_content(history, business_context, current_question=""):
+async def generate_draft_content(history, business_context, current_question=""):
     """Generate draft content based on conversation history"""
     # Extract recent messages (both user and assistant) to understand context
     recent_messages = []
@@ -1792,6 +1867,69 @@ def generate_draft_content(history, business_context, current_question=""):
         current_question = get_current_question_context(history)
     
     print(f"🔍 DEBUG - Current question context for draft: {current_question[:100]}...")
+    
+    # Extract business context
+    business_name = business_context.get("business_name", "your business")
+    industry = business_context.get("industry", "your industry")
+    business_type = business_context.get("business_type", "your business type")
+    location = business_context.get("location", "your location")
+    
+    # Extract previous answers from history for better context
+    previous_answers = []
+    for msg in history[-10:]:
+        if msg.get('role') == 'user' and len(msg.get('content', '')) > 20:
+            content = msg.get('content', '')
+            # Skip command words
+            if content.lower() not in ['support', 'draft', 'scrapping', 'scraping', 'accept', 'modify']:
+                previous_answers.append(content[:200])
+    
+    # Use AI to generate a comprehensive, personalized draft
+    draft_prompt = f"""
+    Create a comprehensive, detailed draft answer for this business question: "{current_question}"
+    
+    Business Context:
+    - Business Name: {business_name}
+    - Industry: {industry}
+    - Business Type: {business_type}
+    - Location: {location}
+    
+    Previous Answers and Context:
+    {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
+    
+    Generate a complete, well-structured draft answer that:
+    1. Directly answers the question with specific, actionable content
+    2. Is personalized to {business_name} in the {industry} industry
+    3. Considers the {location} market and local factors
+    4. Provides concrete details and examples (not generic advice)
+    5. Is appropriate for a {business_type} business structure
+    6. Uses information from previous answers when relevant
+    7. Includes bullet points or numbered lists for clarity
+    8. Is comprehensive enough to be used as-is (400-600 words)
+    
+    Structure the draft with clear sections like:
+    - Main answer/core content
+    - Key points or features (use bullet points)
+    - Specific considerations for the business
+    - Next steps or recommendations
+    
+    Make this a complete, polished draft that the user can accept and use immediately. Be specific and detailed, not generic.
+    """
+    
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": draft_prompt}],
+            temperature=0.3,
+            max_tokens=1500  # Increased for detailed draft responses
+        )
+        
+        ai_draft = response.choices[0].message.content
+        print(f"🔍 DEBUG - AI-generated draft length: {len(ai_draft)} characters")
+        return ai_draft
+    except Exception as e:
+        print(f"AI draft generation failed: {e}, falling back to template-based drafts")
+        # Fall back to template-based drafts if AI generation fails
+        pass
     
     # Check for specific business plan question topics based on current question
     if any(keyword in current_question for keyword in ['problem does your business solve', 'who has this problem', 'problem', 'solve', 'pain point', 'need']):
@@ -1978,7 +2116,7 @@ Focus on validating your concept before full development through market research
     else:
         return "Based on our conversation, here's a comprehensive draft response that addresses your current question with detailed insights and actionable recommendations tailored to your business context and goals. Consider breaking down complex questions into smaller parts and thinking through each aspect systematically."
 
-def handle_scrapping_command(reply, notes, history, session_data=None):
+async def handle_scrapping_command(reply, notes, history, session_data=None):
     """Handle the Scrapping command with actual web search research"""
     print(f"🔍 DEBUG - Scrapping command called with notes: '{notes}'")
     
@@ -1991,10 +2129,10 @@ def handle_scrapping_command(reply, notes, history, session_data=None):
     # Generate scrapping content based on conversation history and current question
     if notes and len(notes.strip()) > 3:
         # Use the new refine function to actually refine user's input
-        scrapping_content = refine_user_input(notes, business_context, current_question)
+        scrapping_content = await refine_user_input(notes, business_context, current_question)
     else:
         # Fallback to generic content if no notes provided
-        scrapping_content = generate_scrapping_content(history, business_context, notes, current_question)
+        scrapping_content = await generate_scrapping_content(history, business_context, notes, current_question)
     
     scrapping_response = f"Here's a refined version of your thoughts:\n\n{scrapping_content}\n\n"
     
@@ -2033,7 +2171,7 @@ def handle_scrapping_command(reply, notes, history, session_data=None):
         "immediate_response": None
     }
 
-def refine_user_input(user_notes, business_context, current_question=""):
+async def refine_user_input(user_notes, business_context, current_question=""):
     """Refine user's actual input instead of generating generic content"""
     business_name = business_context.get("business_name", "your business")
     industry = business_context.get("industry", "your industry")
@@ -2045,9 +2183,63 @@ def refine_user_input(user_notes, business_context, current_question=""):
     # Clean up the user's notes
     cleaned_notes = user_notes.strip()
     
-    # If the notes are very short, expand on them
-    if len(cleaned_notes) < 50:
-        return f"""Based on your input "{cleaned_notes}", here's a refined version:
+    # Use AI to refine and expand on user's input with proper context
+    refine_prompt = f"""
+    Take this user's rough notes/ideas and refine them into a comprehensive, well-structured answer for the question: "{current_question}"
+    
+    User's Notes/Ideas:
+    "{cleaned_notes}"
+    
+    Business Context:
+    - Business Name: {business_name}
+    - Industry: {industry}
+    - Business Type: {business_type}
+    - Location: {location}
+    
+    Your task:
+    1. Take the user's rough ideas and refine them into polished, professional content
+    2. Expand on their ideas with industry-specific insights for {industry}
+    3. Add relevant details and context appropriate for a {business_type} in {location}
+    4. Structure the content clearly with sections and bullet points
+    5. Keep the user's core ideas but make them more comprehensive and actionable
+    6. Add strategic recommendations that build on their initial thoughts
+    7. Make it 300-500 words of refined, detailed content
+    
+    Structure your refined version with:
+    **Refined Core Concept:**
+    [Their idea, polished and expanded]
+    
+    **Industry-Specific Application:**
+    [How this applies to the {industry} industry specifically]
+    
+    **Strategic Recommendations:**
+    [3-5 specific recommendations building on their ideas]
+    
+    **Implementation Steps:**
+    [4-6 concrete steps they can take]
+    
+    **Key Considerations:**
+    [2-3 important factors to consider]
+    
+    Make this a comprehensive refinement that takes their rough ideas and turns them into polished, actionable content.
+    """
+    
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": refine_prompt}],
+            temperature=0.3,
+            max_tokens=1500  # Increased for detailed refinement
+        )
+        
+        refined_content = response.choices[0].message.content
+        print(f"🔍 DEBUG - AI-refined content length: {len(refined_content)} characters")
+        return refined_content
+    except Exception as e:
+        print(f"AI refinement failed: {e}, falling back to basic refinement")
+        # Fallback to basic refinement if AI fails
+        if len(cleaned_notes) < 50:
+            return f"""Based on your input "{cleaned_notes}", here's a refined version:
 
 **Core Concept:**
 {cleaned_notes}
@@ -2065,9 +2257,9 @@ For {business_name} in the {industry} sector, this concept can be developed into
 • Define specific implementation details
 • Identify potential challenges
 • Develop action plan"""
-    
-    # For longer notes, provide a concise refinement
-    return f"""Based on your detailed input, here's a refined version:
+        
+        # For longer notes, provide a concise refinement
+        return f"""Based on your detailed input, here's a refined version:
 
 **Your Core Idea:**
 {cleaned_notes}
@@ -2086,7 +2278,7 @@ This concept shows strong potential for {business_name} in the {industry} sector
 • Establish success metrics
 • Create timeline for execution"""
 
-def generate_scrapping_content(history, business_context, notes, current_question=""):
+async def generate_scrapping_content(history, business_context, notes, current_question=""):
     """Generate concise scrapping content based on conversation history and research notes"""
     # Extract business context
     business_name = business_context.get("business_name", "your business")
@@ -2094,8 +2286,77 @@ def generate_scrapping_content(history, business_context, notes, current_questio
     business_type = business_context.get("business_type", "your business type")
     location = business_context.get("location", "your location")
     
-    # Generate concise contextual analysis
-    return f"""Based on your business context, here's a refined analysis for {business_name}:
+    # Extract previous answers from history for better context
+    previous_answers = []
+    for msg in history[-10:]:
+        if msg.get('role') == 'user' and len(msg.get('content', '')) > 20:
+            content = msg.get('content', '')
+            # Skip command words
+            if content.lower() not in ['support', 'draft', 'scrapping', 'scraping', 'accept', 'modify']:
+                previous_answers.append(content[:200])
+    
+    # Use AI to generate comprehensive scrapping analysis
+    scrapping_prompt = f"""
+    Generate a comprehensive, refined analysis that helps answer this business question: "{current_question}"
+    
+    Business Context:
+    - Business Name: {business_name}
+    - Industry: {industry}
+    - Business Type: {business_type}
+    - Location: {location}
+    
+    Previous Context:
+    {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
+    
+    Research Notes (if provided):
+    {notes if notes else 'No specific research notes provided'}
+    
+    Create a detailed, refined analysis that:
+    1. Synthesizes relevant information from the business context
+    2. Provides industry-specific insights for the {industry} sector
+    3. Considers market dynamics in {location}
+    4. Offers strategic recommendations appropriate for a {business_type}
+    5. Includes current industry trends and best practices (2024-2025)
+    6. Provides actionable next steps
+    7. Is comprehensive and detailed (400-500 words)
+    
+    Structure your analysis with these sections:
+    **Business Context Analysis:**
+    [Overview of the business and how it relates to the question]
+    
+    **Industry-Specific Insights:**
+    [3-4 insights specific to the {industry} industry]
+    
+    **Market Opportunities:**
+    [2-3 opportunities in the {location} market]
+    
+    **Strategic Recommendations:**
+    [4-5 specific, actionable recommendations]
+    
+    **Implementation Priorities:**
+    [3-4 priority actions to take]
+    
+    **Key Success Factors:**
+    [2-3 factors critical for success]
+    
+    Make this comprehensive, strategic, and highly actionable.
+    """
+    
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": scrapping_prompt}],
+            temperature=0.3,
+            max_tokens=1500  # Increased for detailed scrapping analysis
+        )
+        
+        scrapping_content = response.choices[0].message.content
+        print(f"🔍 DEBUG - AI-generated scrapping content length: {len(scrapping_content)} characters")
+        return scrapping_content
+    except Exception as e:
+        print(f"AI scrapping generation failed: {e}, falling back to basic analysis")
+        # Fallback to basic analysis
+        return f"""Based on your business context, here's a refined analysis for {business_name}:
 
 **Business Overview:**
 {business_name} operates in the {industry} sector as a {business_type} business located in {location}.
@@ -2117,7 +2378,7 @@ def generate_scrapping_content(history, business_context, notes, current_questio
 • Identify key success metrics
 • Create actionable development timeline"""
 
-def handle_support_command(reply, history, session_data=None):
+async def handle_support_command(reply, history, session_data=None):
     """Handle the Support command with proactive research assistance"""
     # Extract business context for verification
     business_context = extract_business_context_from_history(history)
@@ -2126,13 +2387,13 @@ def handle_support_command(reply, history, session_data=None):
     current_question = get_current_question_context(history)
     
     # Generate support content based on conversation history and current question
-    support_content = generate_support_content(history, business_context, current_question)
+    support_content = await generate_support_content(history, business_context, current_question)
     
     support_response = f"Let's work through this together with some deeper context:\n\n{support_content}\n\n"
     
     return support_response
 
-def generate_support_content(history, business_context, current_question=""):
+async def generate_support_content(history, business_context, current_question=""):
     """Generate support content based on conversation history"""
     # Extract recent messages (both user and assistant) to understand context
     recent_messages = []
@@ -2163,9 +2424,18 @@ def generate_support_content(history, business_context, current_question=""):
     business_type = business_context.get("business_type", "your business type")
     location = business_context.get("location", "your location")
     
-    # Generate dynamic support using AI model
+    # Extract previous answers from history for better context
+    previous_answers = []
+    for msg in history[-10:]:
+        if msg.get('role') == 'user' and len(msg.get('content', '')) > 20:
+            content = msg.get('content', '')
+            # Skip command words
+            if content.lower() not in ['support', 'draft', 'scrapping', 'scraping', 'accept', 'modify']:
+                previous_answers.append(content[:200])
+    
+    # Generate dynamic support using AI model with enhanced prompt
     support_prompt = f"""
-    Generate comprehensive, industry-specific guidance for this business question: "{current_question}"
+    Generate comprehensive, highly detailed, and industry-specific guidance for this business question: "{current_question}"
     
     Business Context:
     - Business Name: {business_name}
@@ -2173,22 +2443,43 @@ def generate_support_content(history, business_context, current_question=""):
     - Business Type: {business_type}
     - Location: {location}
     
-    Provide detailed, actionable guidance that:
-    1. Is specific to the {industry} industry
-    2. Considers the {location} market
-    3. Is appropriate for a {business_type}
-    4. Includes practical steps and considerations
-    5. References current industry trends and best practices
+    Previous Context from Conversation:
+    {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
     
-    Make the guidance comprehensive but easy to understand. Include specific examples relevant to the {industry} sector.
+    Provide extremely detailed, actionable guidance that:
+    1. Is highly specific to the {industry} industry with real examples
+    2. Considers the {location} market dynamics and local factors
+    3. Is appropriate for a {business_type} with practical implementation steps
+    4. Includes 5-7 concrete, actionable steps the entrepreneur can take immediately
+    5. References current {industry} industry trends, statistics, and best practices for 2024-2025
+    6. Addresses common challenges specific to {industry} businesses in {location}
+    7. Provides strategic insights that go beyond basic advice
+    
+    Structure your response with:
+    **Understanding the Question**
+    [Detailed explanation of what this question means for their specific business]
+    
+    **Industry-Specific Insights**
+    [3-4 specific insights about the {industry} industry that relate to this question]
+    
+    **Practical Action Steps**
+    [5-7 numbered, detailed action steps they can take]
+    
+    **Common Challenges & Solutions**
+    [2-3 common challenges and how to overcome them]
+    
+    **Best Practices for {industry} Businesses**
+    [3-4 best practices specific to the industry]
+    
+    Make the guidance extremely comprehensive, detailed, and actionable. Aim for 400-600 words of rich, valuable content.
     """
     
     try:
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": support_prompt}],
             temperature=0.3,
-            max_tokens=600
+            max_tokens=1500  # Increased from 600 to 1500 for detailed responses
         )
         
         return response.choices[0].message.content
@@ -2199,7 +2490,7 @@ def generate_support_content(history, business_context, current_question=""):
     
     
 
-def handle_draft_more_command(reply, history, session_data=None):
+async def handle_draft_more_command(reply, history, session_data=None):
     """Handle the Draft More command to create additional content"""
     # Extract business context for verification
     business_context = extract_business_context_from_history(history)
@@ -2208,18 +2499,89 @@ def handle_draft_more_command(reply, history, session_data=None):
     current_question = get_current_question_context(history)
     
     # Generate additional content based on current question
-    additional_content = generate_additional_draft_content(history, business_context, current_question)
+    additional_content = await generate_additional_draft_content(history, business_context, current_question)
     
-    draft_more_response = f"I'll create additional content for you:\n\n{additional_content}\n\n"
+    # Use consistent format with "Here's a draft" to trigger button detection
+    draft_more_response = f"Here's a draft for you:\n\n{additional_content}\n\n"
     
     return draft_more_response
 
-def generate_additional_draft_content(history, business_context, current_question=""):
-    """Generate additional draft content based on current question"""
+async def generate_additional_draft_content(history, business_context, current_question=""):
+    """Generate additional draft content based on current question using AI"""
     business_name = business_context.get("business_name", "your business")
     industry = business_context.get("industry", "your industry")
     business_type = business_context.get("business_type", "your business type")
+    location = business_context.get("location", "your location")
     
+    # Extract previous answers from history for better context
+    previous_answers = []
+    for msg in history[-10:]:
+        if msg.get('role') == 'user' and len(msg.get('content', '')) > 20:
+            content = msg.get('content', '')
+            # Skip command words
+            if content.lower() not in ['support', 'draft', 'scrapping', 'scraping', 'accept', 'modify', 'draft more']:
+                previous_answers.append(content[:200])
+    
+    # Use AI to generate enhanced additional content
+    draft_more_prompt = f"""
+    The user requested "Draft More" - they want additional, enhanced content on top of what was already provided.
+    
+    Current Question: "{current_question}"
+    
+    Business Context:
+    - Business Name: {business_name}
+    - Industry: {industry}
+    - Business Type: {business_type}
+    - Location: {location}
+    
+    Previous Context:
+    {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
+    
+    Generate ENHANCED, ADDITIONAL content that:
+    1. Takes the original answer to the next level with MORE detail
+    2. Adds 3-5 UNIQUE angles or perspectives not typically considered
+    3. Provides ADVANCED strategic insights specific to {industry} in {location}
+    4. Includes innovative ideas and creative approaches
+    5. Offers cutting-edge industry trends and best practices (2024-2025)
+    6. Makes it stand out with unique value propositions
+    7. Is comprehensive (400-600 words) and highly actionable
+    
+    Structure your enhanced draft with:
+    **Enhanced Main Content:**
+    [Take the original concept and elevate it with unique insights]
+    
+    **Unique Angles & Innovation:**
+    [3-5 creative approaches that differentiate from competitors]
+    
+    **Advanced Strategic Insights:**
+    [Deep industry-specific strategies for {industry}]
+    
+    **Implementation Roadmap:**
+    [Detailed 5-7 step plan with specifics]
+    
+    **Competitive Edge Factors:**
+    [What makes this approach uniquely powerful]
+    
+    Make this draft MORE creative, MORE detailed, and MORE strategic than a standard response. Think outside the box!
+    """
+    
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": draft_more_prompt}],
+            temperature=0.4,  # Slightly higher for more creativity
+            max_tokens=1500
+        )
+        
+        enhanced_content = response.choices[0].message.content
+        print(f"🔍 DEBUG - AI-generated enhanced draft length: {len(enhanced_content)} characters")
+        return enhanced_content
+    except Exception as e:
+        print(f"AI enhanced draft generation failed: {e}, falling back to template")
+        # Fallback to template if AI fails
+        pass
+    
+    # Fallback templates if AI generation fails
     if any(keyword in current_question.lower() for keyword in ['target market', 'demographics', 'psychographics', 'behaviors', 'ideal customer']):
         return f"""Here's additional detailed content for your target market strategy:
 
@@ -2360,48 +2722,15 @@ def extract_business_context_from_history(history):
                             business_context["business_name"] = potential_name
                             print(f"🔍 DEBUG - Found direct business name: {potential_name}")
             
-            # Extract industry information - DYNAMIC APPROACH using AI model intelligence
+            # Extract industry information - Use simple keyword matching
             if not business_context["industry"]:
-                # Use AI model to intelligently identify industry from any user input
-                industry_prompt = f"""
-                Analyze this user input and determine if it represents a business industry or sector: "{content}"
-                
-                If it's an industry/sector, return ONLY the industry name in a standardized format.
-                If it's not an industry, return "NOT_INDUSTRY".
-                
-                Examples:
-                - "Tea Stall" → "Tea Stall"
-                - "AI Development" → "AI Development" 
-                - "Food Service" → "Food Service"
-                - "Technology" → "Technology"
-                - "yes" → "NOT_INDUSTRY"
-                - "sure" → "NOT_INDUSTRY"
-                - "Karachi" → "NOT_INDUSTRY"
-                
-                Return only the industry name or "NOT_INDUSTRY":
-                """
-                
-                try:
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[{"role": "user", "content": industry_prompt}],
-                        temperature=0.1,
-                        max_tokens=20
-                    )
-                    
-                    industry_result = response.choices[0].message.content.strip()
-                    if industry_result != "NOT_INDUSTRY" and len(industry_result) > 2:
-                        business_context["industry"] = industry_result
-                        print(f"🔍 DEBUG - AI identified industry: {industry_result}")
-                except Exception as e:
-                    print(f"🔍 DEBUG - Industry AI analysis failed: {e}")
-                    # Fallback to simple keyword detection for common industries only
-                    common_industries = ["technology", "healthcare", "finance", "retail", "manufacturing", "education", "consulting", "food", "restaurant", "ecommerce", "software", "marketing", "real estate", "construction", "transportation", "entertainment", "media", "agriculture", "energy", "automotive", "ai development", "artificial intelligence", "development", "tech", "software development", "web development", "mobile development", "tea stall", "tea", "beverage", "food service", "hospitality", "cafe", "coffee shop"]
-                    for industry in common_industries:
-                        if industry in content_lower:
-                            business_context["industry"] = industry.title()
-                            print(f"🔍 DEBUG - Fallback industry match: {industry}")
-                            break
+                # Simple keyword detection for common industries
+                common_industries = ["technology", "healthcare", "finance", "retail", "manufacturing", "education", "consulting", "food", "restaurant", "ecommerce", "software", "marketing", "real estate", "construction", "transportation", "entertainment", "media", "agriculture", "energy", "automotive", "ai development", "artificial intelligence", "development", "tech", "software development", "web development", "mobile development", "tea stall", "tea", "beverage", "food service", "hospitality", "cafe", "coffee shop"]
+                for industry in common_industries:
+                    if industry in content_lower:
+                        business_context["industry"] = industry.title()
+                        print(f"🔍 DEBUG - Identified industry: {industry}")
+                        break
             
             # Extract location information
             if not business_context["location"]:
@@ -2512,7 +2841,7 @@ async def handle_competitor_research_request(user_input, business_context, histo
         - Business Name: {business_name}
         
         Research Results:
-        {chr(10).join([f"Query: {r['query']}\nResult: {r['result']}\n" for r in competitor_research_results])}
+        {chr(10).join([f"Query: {r['query']}{chr(10)}Result: {r['result']}{chr(10)}" for r in competitor_research_results])}
         
         Please provide:
         1. Main competitors identified
