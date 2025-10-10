@@ -67,55 +67,100 @@ WEB SEARCH GUIDELINES:
 
 To use web search, include in your response: WEBSEARCH_QUERY: [your search query]"""
 
+def is_draft_or_support_response(response_text: str) -> bool:
+    """Check if response is a draft or support command response"""
+    # First check if this is a verification/summary (NOT a draft)
+    verification_indicators = [
+        "Does this look accurate",
+        "Does this look correct",
+        "Is this accurate",
+        "Verification:",
+        "Here's what I've captured so far"
+    ]
+    
+    # If it's a verification message, it's NOT a draft
+    if any(indicator in response_text for indicator in verification_indicators):
+        return False
+    
+    # Check for actual draft/support indicators
+    draft_indicators = [
+        "Here's a draft for you:",
+        "Here's a draft based on what you've shared",
+        "Let's work through this together",
+        "Here's a refined version of your thoughts",
+        "I'll create additional content for you"
+    ]
+    return any(indicator in response_text for indicator in draft_indicators)
+
+def is_moving_to_next_question(response_text: str) -> bool:
+    """Check if response is transitioning to next question (should NOT show buttons)"""
+    response_lower = response_text.lower()
+    
+    # FIRST: Check if this is a Draft/Support/Scrapping response
+    # These should NEVER be considered as "moving to next question"
+    draft_or_support_indicators = [
+        "here's a draft for you:",
+        "here's a draft based on",
+        "let's work through this together",
+        "here's a refined version",
+        "i'll create additional content"
+    ]
+    
+    if any(indicator in response_lower for indicator in draft_or_support_indicators):
+        # This is a draft/support response - should ALWAYS show buttons
+        return False
+    
+    # Patterns that indicate moving to next question
+    transition_patterns = [
+        "let's move forward",
+        "let's move on",
+        "let's move to the next",
+        "let's continue",
+        "moving on to",
+        "ready to move on",
+        "let's proceed",
+        "moving forward"
+    ]
+    
+    # Check if response has transition pattern
+    has_transition = any(pattern in response_lower for pattern in transition_patterns)
+    
+    # Check if asking a new question (question mark near the end)
+    lines = response_text.split('\n')
+    last_lines = '\n'.join(lines[-5:])  # Check last 5 lines
+    has_question_at_end = "?" in last_lines
+    
+    # It's moving to next question if has transition AND question at end
+    return has_transition and has_question_at_end
+
 async def should_show_accept_modify_buttons(ai_response: str, user_last_input: str = "") -> dict:
-    """Use AI to intelligently determine if Accept/Modify buttons should be shown"""
-    try:
-        detection_prompt = f"""
-        Analyze this AI assistant response and determine if it should show "Accept" and "Modify" buttons to the user.
-        
-        AI Response: "{ai_response[:800]}"
-        User's Last Input: "{user_last_input}"
-        
-        Show Accept/Modify buttons if the response is:
-        1. A draft answer or guidance that user might want to accept or edit
-        2. A substantial, actionable response (400+ words) with detailed content
-        3. A response to user's request for unique/different/better/detailed content
-        4. Support/Draft/Scrapping type responses
-        5. Structured content with sections that looks like an answer (not just a question)
-        
-        Do NOT show buttons if:
-        1. It's just asking the next question without substantial answer content
-        2. It's a short acknowledgment or transition message
-        3. Response length is less than 300 characters
-        
-        Respond with ONLY "YES" or "NO"
-        """
-        
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": detection_prompt}],
-            temperature=0.1,
-            max_tokens=5,
-            timeout=2.0
-        )
-        
-        decision = response.choices[0].message.content.strip().upper()
-        should_show = decision == "YES"
-        
-        print(f"🤖 AI Detection: Should show buttons? {should_show} (Response length: {len(ai_response)})")
-        
-        return {
-            "show_buttons": should_show,
-            "content_length": len(ai_response)
-        }
-    except Exception as e:
-        print(f"AI button detection failed: {e}, falling back to heuristic")
-        # Fallback to simple heuristic if AI fails
-        is_substantial = len(ai_response) > 500 and "**" in ai_response
-        return {
-            "show_buttons": is_substantial,
-            "content_length": len(ai_response)
-        }
+    """Determine if Accept/Modify buttons should be shown"""
+    user_input_lower = user_last_input.lower().strip()
+    
+    # Check if user explicitly requested Draft, Support, or Scrapping
+    command_keywords = ["draft", "support", "scrapping", "scraping", "draft more"]
+    is_command_request = user_input_lower in command_keywords
+    
+    # Check if response is a draft/support response
+    is_draft_response = is_draft_or_support_response(ai_response)
+    
+    # Check if response is moving to next question
+    is_next_question = is_moving_to_next_question(ai_response)
+    
+    # Show buttons ONLY if it's a command response AND not moving to next question
+    should_show = (is_command_request or is_draft_response) and not is_next_question
+    
+    print(f"🔍 Button Detection:")
+    print(f"  - User input: '{user_last_input[:50]}...'")
+    print(f"  - Is command request: {is_command_request}")
+    print(f"  - Is draft response: {is_draft_response}")
+    print(f"  - Is next question: {is_next_question}")
+    print(f"  - Should show buttons: {should_show}")
+    
+    return {
+        "show_buttons": should_show,
+        "content_length": len(ai_response)
+    }
 
 async def conduct_web_search(query):
     """Conduct web search using OpenAI's web search tool with progress indication"""
@@ -668,20 +713,25 @@ def inject_missing_tag(reply, session_data=None):
         return reply
     
     # Check if this is a command response (Draft, Support, Scrapping) - don't inject tags for these
+    # Also includes verification messages that should stay on same question
     command_indicators = [
+        "Here's a draft for you",
         "Here's a draft based on what you've shared",
         "Let's work through this together",
         "Here's a refined version of your thoughts",
         "I'll create additional content for you",
         "Verification:",
-        "Here's what I've captured so far:"
+        "Here's what I've captured so far",
+        "Does this look accurate",
+        "Does this look correct"
     ]
     
     if any(indicator in reply for indicator in command_indicators):
         # This is a command response, don't inject a tag - stay on current question
         return reply
     
-    # Try to determine the current phase and question number
+    # Determine the question number to inject
+    # When AI asks a new question without a tag, inject the NEXT question number
     current_phase = "KYC"  # Default
     question_num = "01"    # Default
     
@@ -691,8 +741,12 @@ def inject_missing_tag(reply, session_data=None):
         if "." in asked_q:
             phase, num = asked_q.split(".")
             current_phase = phase
-            # Use current question number, don't increment for command responses
-            question_num = num
+            # INCREMENT to get the NEXT question number (since user just answered current question)
+            try:
+                next_num = int(num) + 1
+                question_num = f"{next_num:02d}"  # Format as 01, 02, 03, etc.
+            except (ValueError, TypeError):
+                question_num = num  # Fallback to current if parsing fails
     
     # If this looks like a question (contains ?), inject a tag
     if "?" in reply and len(reply.strip()) > 10:
@@ -1496,6 +1550,8 @@ Do NOT include question numbers, progress percentages, or step counts in your re
         elif user_content.lower().startswith("scrapping:"):
             notes = user_content[10:].strip()
             scrapping_result = await handle_scrapping_command("", notes, history, session_data)
+            # Add show_accept_modify for scrapping responses
+            scrapping_result["show_accept_modify"] = True
             # If web search is needed, let the main function handle it
             if scrapping_result.get("web_search_status", {}).get("is_searching"):
                 needs_web_search = True
@@ -1505,6 +1561,8 @@ Do NOT include question numbers, progress percentages, or step counts in your re
                 return scrapping_result
         elif user_content.lower() in ["scrapping", "scraping"]:
             scrapping_result = await handle_scrapping_command("", "", history, session_data)
+            # Add show_accept_modify for scrapping responses
+            scrapping_result["show_accept_modify"] = True
             # If web search is needed, let the main function handle it
             if scrapping_result.get("web_search_status", {}).get("is_searching"):
                 needs_web_search = True
@@ -1520,11 +1578,13 @@ Do NOT include question numbers, progress percentages, or step counts in your re
             # Fallback to normal AI generation
             reply_content = "I understand you'd like to use a command. Please try again."
         
-        # Return the command response directly without further processing
+        # For command responses, ALWAYS show Accept/Modify buttons
+        # Return the command response with button detection
         return {
             "reply": reply_content,
             "web_search_status": {"is_searching": False, "query": None, "completed": False},
-            "immediate_response": None
+            "immediate_response": None,
+            "show_accept_modify": True  # Always show buttons for Draft/Support/Scrapping
         }
     
     # Build messages for OpenAI - optimized for speed

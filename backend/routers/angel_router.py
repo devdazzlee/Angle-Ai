@@ -137,13 +137,17 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
         }
 
     # Check if this is a command response that should not trigger tag processing
+    # Also includes verification messages
     command_indicators = [
+        "Here's a draft for you",
         "Here's a draft based on what you've shared",
         "Let's work through this together",
         "Here's a refined version of your thoughts",
         "I'll create additional content for you",
         "Verification:",
-        "Here's what I've captured so far:"
+        "Here's what I've captured so far",
+        "Does this look accurate",
+        "Does this look correct"
     ]
     
     is_command_response = any(indicator in assistant_reply for indicator in command_indicators)
@@ -310,6 +314,14 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
         "current_phase": session["current_phase"]
     })
 
+    # Extract question number from tag before removing it
+    question_number = None
+    if tag and "." in tag:
+        try:
+            question_number = int(tag.split(".")[1])
+        except (ValueError, IndexError):
+            question_number = None
+    
     # Clean response
     display_reply = re.sub(r'Question \d+ of \d+ \(\d+%\):', '', assistant_reply, flags=re.IGNORECASE)
     display_reply = re.sub(r'\[\[Q:[A-Z_]+\.\d{2}]]', '', display_reply)
@@ -338,7 +350,8 @@ async def post_chat(session_id: str, request: Request, payload: ChatRequestSchem
             "session_id": session_id,
             "web_search_status": web_search_status,
             "immediate_response": immediate_response,
-            "show_accept_modify": show_accept_modify
+            "show_accept_modify": show_accept_modify,
+            "question_number": question_number
         }
     }
 
@@ -368,6 +381,19 @@ def get_phase_display_name(phase):
 async def patch_session_context_from_response(session_id, response_content, tag, session):
     """Extract and store key information from user responses"""
     
+    # Skip extraction if this is a command word (Accept, Modify, Draft, etc.)
+    command_words = ["accept", "modify", "draft", "support", "scrapping", "scraping", "draft more", "ok", "okay", "yes", "no"]
+    response_lower = response_content.strip().lower()
+    
+    if response_lower in command_words:
+        print(f"🔧 Skipping session context extraction for command word: {response_content}")
+        return
+    
+    # Skip if response is too long (likely from Support/Draft commands)
+    if len(response_content) > 500:
+        print(f"🔧 Skipping session context extraction for long response ({len(response_content)} chars)")
+        return
+    
     # Extract key information based on KYC question
     updates = {}
     
@@ -392,6 +418,7 @@ async def patch_session_context_from_response(session_id, response_content, tag,
         
     # Update session with extracted information
     if updates:
+        print(f"📝 Extracting session context: {list(updates.keys())}")
         await patch_session(session_id, updates)
         session.update(updates)
 
@@ -810,9 +837,21 @@ async def handle_transition_decision(session_id: str, request: Request, payload:
         if not current_asked_q.startswith("BUSINESS_PLAN."):
             current_asked_q = "BUSINESS_PLAN.46"
         
+        # Calculate correct answered count from the tag
+        answered_from_tag = 46  # Default to 46 if at end
+        if current_asked_q and "." in current_asked_q:
+            try:
+                answered_from_tag = int(current_asked_q.split(".")[1])
+            except (ValueError, IndexError):
+                answered_from_tag = 46
+        
+        # Sync answered_count with the tag to fix any discrepancies
+        session["answered_count"] = answered_from_tag
+        
         await patch_session(session_id, {
             "current_phase": session["current_phase"],
-            "asked_q": current_asked_q
+            "asked_q": current_asked_q,
+            "answered_count": answered_from_tag  # Sync this!
         })
         
         return {
@@ -822,7 +861,7 @@ async def handle_transition_decision(session_id: str, request: Request, payload:
                 "action": "revisit_plan",
                 "progress": {
                     "phase": "BUSINESS_PLAN",
-                    "answered": session.get("answered_count", 46),
+                    "answered": answered_from_tag,  # Use tag-based calculation
                     "total": 46,
                     "percent": 100
                 }
