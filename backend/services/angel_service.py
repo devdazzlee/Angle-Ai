@@ -347,13 +347,12 @@ def validate_business_plan_sequence(reply, session_data=None):
                 elif current_q_num == last_q_num + 1:
                     print(f"✅ Normal progression: {last_q_num} → {current_q_num}")
                 
-                # Handle staying on the same question (shouldn't happen)
+                # Same question number is VALID because session updates before validation
+                # This happens when: user answers Q35 → session updates to Q36 → AI generates Q36
+                # The validation sees Q36 == Q36, which is correct!
                 elif current_q_num == last_q_num:
-                    print(f"⚠️ WARNING: Staying on same question {current_q_num}")
-                    # Force to next question
-                    next_q = f"BUSINESS_PLAN.{last_q_num + 1:02d}"
-                    reply = re.sub(r'\[\[Q:BUSINESS_PLAN\.\d+\]\]', f'[[Q:{next_q}]]', reply)
-                    print(f"🔧 Forced progression to: {next_q}")
+                    print(f"✅ Correct question sequence: {current_q_num} (session already updated)")
+                    # DO NOT force progression - this is correct behavior!
 
     return reply
 
@@ -771,23 +770,21 @@ async def handle_kyc_completion(session_data, history):
 
 🎉 **Congratulations! You've completed your entrepreneurial profile!** 🎉
 
-Here's what I've learned about you and your goals:
+**Here's what I've learned about you and your goals:**
 
-• You're ready to take a proactive approach to building your business
-• You've shared valuable insights about your experience, goals, and preferences
-• You're prepared to dive deep into the business planning process
+✓ You're ready to take a proactive approach to building your business
+✓ You've shared valuable insights about your experience, goals, and preferences  
+✓ You're prepared to dive deep into the business planning process
 
-Now we're moving into the exciting Business Planning phase! This is where we'll dive deep into every aspect of your business idea. I'll be asking detailed questions about your product, market, finances, and strategy.
+**Now we're moving into the exciting Business Planning phase!** This is where we'll dive deep into every aspect of your business idea. I'll be asking detailed questions about your product, market, finances, and strategy.
 
-During this phase, I'll be conducting research in the background to provide you with industry insights, competitive analysis, and market data to enrich your business plan. Don't worry - this happens automatically and securely.
+**Background Research:** During this phase, I'll be conducting research in the background to provide you with industry insights, competitive analysis, and market data to enrich your business plan. Don't worry - this happens automatically and securely.
 
-As we go through each question, I'll provide both supportive encouragement and constructive coaching to help you think through each aspect thoroughly. Remember, this comprehensive approach ensures your final business plan is detailed and provides you with a strong starting point of information that will help you launch your business. The more detailed answers you provide, the better I can help support you to bring your business to life.
+**Your Journey Ahead:** As we go through each question, I'll provide both supportive encouragement and constructive coaching to help you think through each aspect thoroughly. Remember, this comprehensive approach ensures your final business plan is detailed and provides you with a strong starting point of information that will help you launch your business. The more detailed answers you provide, the better I can help support you to bring your business to life.
 
-Let's build the business of your dreams together!
+**Let's build the business of your dreams together!**
 
-*'The way to get started is to quit talking and begin doing.' - Walt Disney*
-
-Ready to dive into your business planning?"""
+*"The way to get started is to quit talking and begin doing." - Walt Disney*"""
     
     return {
         "reply": acknowledgment,
@@ -1204,94 +1201,65 @@ async def get_angel_reply(user_msg, history, session_data=None):
         print(f"🔍 DEBUG - Session validation triggered: {session_validation.get('reply', '')[:100]}...")
         return session_validation
     
-    # Provide critiquing feedback for superficial or unrealistic answers
-    if user_msg and user_msg.get("content"):
-        critique_feedback = provide_critiquing_feedback(user_msg["content"], session_data, history)
-        if critique_feedback:
-            print(f"🔍 DEBUG - Critiquing feedback triggered: {critique_feedback.get('reply', '')[:100]}...")
-            return critique_feedback
+    # DISABLED: Critiquing feedback was too aggressive and causing false positives
+    # Words like "faster" in "scale faster" were triggering unrealistic assumptions check
+    # if user_msg and user_msg.get("content"):
+    #     critique_feedback = provide_critiquing_feedback(user_msg["content"], session_data, history)
+    #     if critique_feedback:
+    #         print(f"🔍 DEBUG - Critiquing feedback triggered: {critique_feedback.get('reply', '')[:100]}...")
+    #         return critique_feedback
     
     # Define formatting instruction at the top to avoid UnboundLocalError
     # Get current phase and question info for Business Plan numbering
     current_phase = session_data.get("current_phase", "KYC") if session_data else "KYC"
     asked_q = session_data.get("asked_q", "KYC.01") if session_data else "KYC.01"
     
-    # Calculate current question number for Business Plan phase
-    # asked_q represents the CURRENT question being asked, not the next one
-    question_number_display = ""
-    if current_phase == "BUSINESS_PLAN" and "." in asked_q:
-        try:
-            current_num = int(asked_q.split(".")[1])
-            question_number_display = f"Question {current_num}"
-        except (ValueError, IndexError):
-            question_number_display = ""
-    
     FORMATTING_INSTRUCTION = f"""
 CRITICAL FORMATTING RULES - FOLLOW EXACTLY:
 
 1. ALWAYS start with a brief acknowledgment (1-2 sentences max)
 2. Add a blank line for visual separation
-3. {f"BUSINESS PLAN: Include '{question_number_display}' on its own line after acknowledgment and before question" if question_number_display else "Present the question in a clear, structured format"}
-4. Present the question in a clear, structured format:
+3. Present the question in a clear, structured format
+
+IMPORTANT: The UI automatically displays "Question X" - DO NOT include question numbers in your response!
 
 For YES/NO questions:
 "That's great, {user_name}!
-{chr(10) + question_number_display + chr(10) if question_number_display else ""}
-Have you started a business before?
-• Yes
-• No"
+
+Have you started a business before?"
 
 For multiple choice questions:
 "That's perfect, {user_name}!
-{chr(10) + question_number_display + chr(10) if question_number_display else ""}
+
 What's your current work situation?"
 
 NOTE: Do NOT list option bullets in your message. The UI displays clickable option buttons.
 
 For rating questions:
 "That's helpful, {user_name}!
-{chr(10) + question_number_display + chr(10) if question_number_display else ""}
-How comfortable are you with business planning?
-○ ○ ○ ○ ○
-1  2  3  4  5"
 
-For verification steps:
-"That's excellent, {user_name}!
-
-Here's what I've captured so far:
-[Summary of information]
-
-Does this look accurate to you? If not, please let me know where you'd like to modify and we'll work through this some more."
+How comfortable are you with business planning?"
 
 ❌ NEVER LIST OPTIONS IN YOUR MESSAGE: 
 "What's your current work situation? • Full-time • Part-time • Student..."
 "Will your business be primarily: • Online • Brick-and-mortar • Mix of both"
 
 ✅ CORRECT - ASK CLEANLY WITHOUT OPTIONS: 
-"What's your current work situation:"
-"Will your business be primarily:"
+"What's your current work situation?"
+"Will your business be primarily?"
 
 CRITICAL: The UI displays option buttons automatically. Do NOT include option lists in your message text.
 
 BUSINESS PLAN SPECIFIC RULES:
 • Ask ONE question at a time in EXACT sequential order
-{f"• CRITICAL: Include '{question_number_display}' on its own line after acknowledgment" if question_number_display else ""}
-• After every 3-4 questions, provide verification step
-• Wait for user acknowledgment before proceeding
-• Never combine questions or skip verification steps
 • Each question must be on its own line with proper spacing
-• Use verification format: "Here's what I've captured so far: [summary]. Does this look accurate to you?"
 • NEVER mold user answers into mission, vision, USP without explicit verification
 • Do NOT list option bullets in your message - UI shows clickable buttons for multiple-choice questions
 • Start with BUSINESS_PLAN.01 and proceed sequentially
 • Do NOT jump to later questions or combine multiple questions
-
-VERIFICATION FLOW REQUIREMENTS:
-• When providing verification, ONLY show the verification message
-• Do NOT combine verification with the next question
-• Wait for user response (Accept/Modify) before proceeding
-• After user accepts, show brief acknowledgment: "Great! Let's move to the next question..."
-• Then ask the next sequential question
+• Do NOT provide section summaries or verification steps - just ask the next question
+• When user answers, acknowledge briefly (1-2 sentences) and immediately ask the next question
+• NEVER include "Question X" in your response - the UI shows it automatically
 
 CRITIQUING SYSTEM (50/50 APPROACH):
 • **50% Positive Acknowledgment**: Always start with supportive, encouraging response to their answer
@@ -1307,10 +1275,23 @@ CRITIQUING SYSTEM (50/50 APPROACH):
 Do NOT include question numbers, progress percentages, or step counts in your response.
 """
     
-    # Handle empty input based on context
+    # Handle empty input based on context - preserve current phase state
     if not user_msg.get("content") or user_msg["content"].strip() == "":
-        # If we're revisiting business plan, continue with current question
-        if session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
+        # Get current phase to maintain state on refresh
+        current_phase = session_data.get("current_phase", "KYC") if session_data else "KYC"
+        
+        # If we're in ROADMAP or PLAN_TO_ROADMAP_TRANSITION phase, maintain that state
+        if current_phase in ["ROADMAP", "PLAN_TO_ROADMAP_TRANSITION", "ROADMAP_TO_IMPLEMENTATION_TRANSITION"]:
+            # Return a message indicating the user is in the roadmap phase
+            return {
+                "reply": "You're currently in the roadmap phase. Your business plan has been completed and your launch roadmap is ready. Please use the interface to review your roadmap or start implementation.",
+                "web_search_status": {"is_searching": False, "query": None},
+                "immediate_response": None,
+                "patch_session": None
+            }
+        
+        # If we're in BUSINESS_PLAN phase, continue with current question
+        elif current_phase == "BUSINESS_PLAN":
             current_tag = session_data.get("asked_q", "BUSINESS_PLAN.01")
             if current_tag and current_tag.startswith("BUSINESS_PLAN."):
                 # Generate the current question
@@ -1338,13 +1319,31 @@ Do NOT include question numbers, progress percentages, or step counts in your re
                 
                 return response.choices[0].message.content
         
-        # Default to "hi" for other cases
+        # Default to "hi" for KYC or initial phases
         user_msg["content"] = "hi"
 
     user_content = user_msg["content"].strip()
     print(f"🚀 Starting Angel reply generation for: {user_content[:50]}...")
     
-    # KYC completion check moved to AFTER AI response generation
+    # Check if user just answered the final KYC question BEFORE generating AI response
+    if session_data and session_data.get("current_phase") == "KYC":
+        current_tag = session_data.get("asked_q", "")
+        if current_tag and current_tag.startswith("KYC."):
+            try:
+                question_num = int(current_tag.split(".")[1])
+                # Check if user just answered the final question (19 or higher) with "proactive" or "non-proactive" response
+                if (question_num >= 19 and 
+                    not current_tag.endswith("_ACK") and
+                    ("proactive" in user_content.lower() or 
+                     user_content.lower().strip() in ["yes", "y", "yeah", "yep", "sure", "ok", "okay", "absolutely", "definitely", "no", "n", "nope", "NO", "NOPE" , "proactive" , "Proactive" , "excellent" , "Excellent" , "fantastic" , "Fantastic" , "congratulations" , "Congratulations"] or
+                     "yes" in user_content.lower() or
+                     "no" in user_content.lower())):
+                    
+                    print(f"🎯 User answered final KYC question ({question_num}) - triggering completion immediately BEFORE AI response")
+                    # Trigger completion immediately after acknowledgment
+                    return await handle_kyc_completion(session_data, history)
+            except (ValueError, IndexError):
+                pass
     
     # Check if Business Plan phase is complete (question 46 for full flow)
     if session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
@@ -1627,15 +1626,6 @@ Do NOT include question numbers, progress percentages, or step counts in your re
             except (ValueError, IndexError):
                 pass
         
-        # Calculate question number for display in session context
-        next_q_display = ""
-        if current_phase == "BUSINESS_PLAN":
-            try:
-                q_num = int(next_question_num)
-                next_q_display = f"Question {q_num}"
-            except (ValueError, TypeError):
-                next_q_display = ""
-        
         session_context = f"""
 CURRENT SESSION STATE:
 - Current Phase: {current_phase}
@@ -1649,14 +1639,15 @@ CRITICAL INSTRUCTIONS:
 3. The next question should be {current_phase}.{next_question_num}
 4. Only ask ONE question at a time
 5. Use the proper tag format: [[Q:{current_phase}.{next_question_num}]]
-{f"6. YOU MUST include '{next_q_display}' on its own line in your response (after acknowledgment, before question)" if next_q_display else "6. Continue with the next sequential question"}
+6. NEVER include "Question X" text in your response - the UI displays it automatically
 7. Do NOT ask about business plan drafting or other phases - stay in {current_phase} phase
 8. Continue with the next sequential question in the {current_phase} phase
 9. NEVER skip questions - ask them in exact sequential order
-10. If user provides an answer, acknowledge it and ask the next question
-11. If user uses Support/Draft/Scrapping commands, provide help but then ask the same question again
+10. If user provides an answer, acknowledge it briefly (1-2 sentences) and immediately ask the next question
+11. If user uses Support/Draft/Scrapping commands, provide help but stay on the same question
 12. Do NOT jump to random questions - follow the exact sequence
 13. Do NOT list option bullets in your message - the UI displays clickable option buttons
+14. Do NOT provide section summaries - just acknowledge and ask the next question
 
 """
         msgs.append({"role": "system", "content": session_context})
@@ -1740,7 +1731,8 @@ CRITICAL INSTRUCTIONS:
     
     # Check if we need to provide a section summary
     current_tag = session_data.get("asked_q") if session_data else None
-    section_summary_info = check_for_section_summary(current_tag, session_data, history)
+    # DISABLED: Section summaries causing issues - question numbers showing, repeating on "yes", not moving to next question
+    section_summary_info = None  # check_for_section_summary(current_tag, session_data, history)
     
     if section_summary_info:
         # Add section summary requirements to the system prompt
@@ -1787,27 +1779,6 @@ Here's what I've captured so far: [summary]. Does this look accurate to you? If 
     end_time = time.time()
     response_time = end_time - start_time
     print(f"⏱️ Angel reply generated in {response_time:.2f} seconds")
-    
-    # Check if user just answered the final KYC question
-    if session_data and session_data.get("current_phase") == "KYC":
-        current_tag = session_data.get("asked_q", "")
-        if current_tag and current_tag.startswith("KYC."):
-            try:
-                question_num = int(current_tag.split(".")[1])
-                # Check if user just answered the final question (19) with "proactive" or "non-proactive" response
-                if (question_num == 19 and 
-                    not current_tag.endswith("_ACK") and
-                    ("proactive" in user_content.lower() or 
-                     user_content.lower().strip() in ["yes", "y", "yeah", "yep", "sure", "ok", "okay", "absolutely", "definitely", "no", "n", "nope", "NO", "NOPE" , "proactive" , "Proactive" , "excellent" , "Excellent" , "fantastic" , "Fantastic" , "congratulations" , "Congratulations"] or
-                     "yes" in user_content.lower() or
-                     "no" in user_content.lower())):
-                    
-                    print(f"🎯 User answered final KYC question (19) - triggering completion immediately")
-                    # Trigger completion immediately after acknowledgment
-                    return await handle_kyc_completion(session_data, history)
-            except (ValueError, IndexError):
-                pass
-    
     
     # Use AI to determine if Accept/Modify buttons should be shown
     button_detection = await should_show_accept_modify_buttons(reply_content, user_content)
