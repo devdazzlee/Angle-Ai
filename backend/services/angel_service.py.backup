@@ -28,17 +28,17 @@ def should_conduct_web_search():
     return True
 
 TAG_PROMPT = """CRITICAL: You MUST include a machine-readable tag in EVERY response that contains a question. Use this exact format:
-[[Q:<PHASE>.<NN>]] 
+    [[Q:<PHASE>.<NN>]] 
 
 Examples:
-- [[Q:KYC.01]] What's your name?
+    - [[Q:KYC.01]] What's your name?
 - [[Q:KYC.02]] What is your preferred communication style?
 - [[Q:BUSINESS_PLAN.01]] What is your business idea?
 - [[Q:BUSINESS_PLAN.19]] What is your revenue model?
 - [[Q:BUSINESS_PLAN.20]] How will you market your business?
 
 IMPORTANT RULES:
-1. The tag must be at the beginning of your question, before any other text
+    1. The tag must be at the beginning of your question, before any other text
 2. Question numbers must be sequential and correct for the current phase
 3. For BUSINESS_PLAN phase, questions should be numbered 01 through 46
 4. NEVER jump backwards in question numbers (e.g., from 19 to 10)
@@ -51,14 +51,14 @@ FORMATTING REQUIREMENT: Always use structured format for questions - NEVER parag
 WEB_SEARCH_PROMPT = """You have access to web search capabilities, but use them VERY SPARINGLY during Implementation phase.
 
 IMPLEMENTATION PHASE RULES:
-• Use web search VERY SPARINGLY - maximum 1 search per response
+    • Use web search VERY SPARINGLY - maximum 1 search per response
 • Focus on delivering quick, practical implementation steps
 • Users expect fast responses during implementation (3-5 seconds max)
 • Only search for the most critical information gaps
 • AVOID multiple web searches - they cause delays
 
 WEB SEARCH GUIDELINES:
-• When web search results are provided, you MUST include them in your response immediately
+    • When web search results are provided, you MUST include them in your response immediately
 • Use previous calendar year for search queries (e.g., "2024" instead of "2023")
 • Provide comprehensive answers based on the research findings
 • Do not ask the user to wait or send another message - deliver results immediately
@@ -1052,7 +1052,7 @@ async def generate_business_plan_summary(session_data, history):
     Conversation History: {conversation_text[:2000]}  # Limit to avoid token limits
     
     Provide a structured summary that includes:
-    1. Business Overview
+        1. Business Overview
     2. Target Market
     3. Products/Services
     4. Business Model
@@ -1182,7 +1182,7 @@ For now, please share your thoughts directly about the current question.""",
             help_message = """Please provide a direct answer to the current question. This will help me personalize your experience and provide the most relevant guidance for your specific situation."""
         else:
             help_message = """If you're unsure about how to answer, you can use:
-- **Support** - for guided help with the question
+                - **Support** - for guided help with the question
 - **Draft** - for me to help create an answer based on what you've shared so far"""
         
         return {
@@ -1218,7 +1218,7 @@ Let's continue with the current question.""",
             help_message = """Please provide a direct answer to help me understand your situation better."""
         else:
             help_message = """If you need help with the current question, you can use:
-- **Support** - for guided help with the question
+                - **Support** - for guided help with the question
 - **Draft** - for me to help create an answer based on what you've shared so far
 - **Scrapping** - to refine and polish your existing text"""
         
@@ -1268,7 +1268,7 @@ Please provide a more detailed response to continue.""",
 The more information you share, the better I can tailor my guidance to your specific situation and needs.
 
 If you're unsure how to answer, you can use:
-- **Support** - for guided help with the question
+    - **Support** - for guided help with the question
 - **Draft** - for me to help create an answer based on what you've shared so far
 - **Scrapping** - to refine and polish your existing text
 
@@ -1306,7 +1306,7 @@ def validate_session_state(session_data, history):
             help_message = """Please provide a complete answer to the current question so we can continue building your comprehensive business plan."""
         else:
             help_message = """If you need help with the current question, you can use:
-- **Support** - for guided help with the question
+                - **Support** - for guided help with the question
 - **Draft** - for me to help create an answer based on what you've shared so far
 - **Scrapping** - to refine and polish your existing text"""
         
@@ -1347,7 +1347,7 @@ Each question in the Business Plan phase is designed to help create a comprehens
 Please provide a detailed answer to the current question.
 
 If you need help, you can use:
-- **Support** - for guided help with the question
+    - **Support** - for guided help with the question
 - **Draft** - for me to help create an answer based on what you've shared so far
 
 Let's continue with the current business planning question.""",
@@ -1383,9 +1383,9 @@ async def get_angel_reply(user_msg, history, session_data=None):
     # DISABLED: Critiquing feedback was too aggressive and causing false positives
     # Words like "faster" in "scale faster" were triggering unrealistic assumptions check
     # if user_msg and user_msg.get("content"):
-    #     critique_feedback = provide_critiquing_feedback(user_msg["content"], session_data, history)
+        #     critique_feedback = provide_critiquing_feedback(user_msg["content"], session_data, history)
     #     if critique_feedback:
-    #         print(f"🔍 DEBUG - Critiquing feedback triggered: {critique_feedback.get('reply', '')[:100]}...")
+        #         print(f"🔍 DEBUG - Critiquing feedback triggered: {critique_feedback.get('reply', '')[:100]}...")
     #         return critique_feedback
     
     # Define formatting instruction at the top to avoid UnboundLocalError
@@ -1403,34 +1403,34 @@ CRITICAL FORMATTING RULES - FOLLOW EXACTLY:
 IMPORTANT: The UI automatically displays "Question X" - DO NOT include question numbers in your response!
 
 For YES/NO questions:
-"That's great, {user_name}!
+    "That's great, {user_name}!
 
 Have you started a business before?"
 
 For multiple choice questions:
-"That's perfect, {user_name}!
+    "That's perfect, {user_name}!
 
 What's your current work situation?"
 
 NOTE: Do NOT list option bullets in your message. The UI displays clickable option buttons.
 
 For rating questions:
-"That's helpful, {user_name}!
+    "That's helpful, {user_name}!
 
 How comfortable are you with business planning?"
 
 ❌ NEVER LIST OPTIONS IN YOUR MESSAGE: 
-"What's your current work situation? • Full-time • Part-time • Student..."
+    "What's your current work situation? • Full-time • Part-time • Student..."
 "Will your business be primarily: • Online • Brick-and-mortar • Mix of both"
 
 ✅ CORRECT - ASK CLEANLY WITHOUT OPTIONS: 
-"What's your current work situation?"
+    "What's your current work situation?"
 "Will your business be primarily?"
 
 CRITICAL: The UI displays option buttons automatically. Do NOT include option lists in your message text.
 
 BUSINESS PLAN SPECIFIC RULES:
-• Ask ONE question at a time in EXACT sequential order
+    • Ask ONE question at a time in EXACT sequential order
 • Each question must be on its own line with proper spacing
 • NEVER mold user answers into mission, vision, USP without explicit verification
 • Do NOT list option bullets in your message - UI shows clickable buttons for multiple-choice questions
@@ -1441,7 +1441,7 @@ BUSINESS PLAN SPECIFIC RULES:
 • NEVER include "Question X" in your response - the UI shows it automatically
 
 CRITIQUING SYSTEM (50/50 APPROACH):
-• **50% Positive Acknowledgment**: Always start with supportive, encouraging response to their answer
+    • **50% Positive Acknowledgment**: Always start with supportive, encouraging response to their answer
 • **50% Educational Coaching**: Identify opportunities to coach the user based on their information
 • **Critiquing Guidelines**: 
   - Don't be critical, but critique their answer constructively
@@ -1478,7 +1478,7 @@ Do NOT include question numbers, progress percentages, or step counts in your re
                 Generate the business plan question for tag: {current_tag}
                 
                 Make sure to:
-                1. Ask the appropriate business plan question for this tag
+                    1. Ask the appropriate business plan question for this tag
                 2. Include the proper tag: [[Q:{current_tag}]]
                 3. Use structured format with proper line breaks
                 4. Provide context if this is a verification or continuation
@@ -1558,7 +1558,7 @@ Do NOT include question numbers, progress percentages, or step counts in your re
                     Now move to the next business plan question: {next_tag}
                     
                     Generate the next business plan question in the sequence. Make sure to:
-                    1. Acknowledge their acceptance briefly (1-2 sentences)
+                        1. Acknowledge their acceptance briefly (1-2 sentences)
                     2. Ask the next sequential business plan question
                     3. Include the proper tag: [[Q:{next_tag}]]
                     4. Use structured format with proper line breaks
@@ -1807,13 +1807,13 @@ Do NOT include question numbers, progress percentages, or step counts in your re
         
         session_context = f"""
 CURRENT SESSION STATE:
-- Current Phase: {current_phase}
+    - Current Phase: {current_phase}
 - Last Question Asked: {asked_q}
 - Questions Answered: {answered_count}
 - Next Question Should Be: {current_phase}.{next_question_num}
 
 CRITICAL INSTRUCTIONS:
-1. You must continue from where the user left off
+    1. You must continue from where the user left off
 2. Do NOT restart the phase or go back to earlier questions
 3. The next question should be {current_phase}.{next_question_num}
 4. Only ask ONE question at a time
@@ -1925,7 +1925,7 @@ You MUST provide a comprehensive section summary that includes:
 4. **Verification Request**: Ask user to verify the information before proceeding
 
 Use this format:
-"🎯 **{section_summary_info['section_name']} Section Complete**
+    "🎯 **{section_summary_info['section_name']} Section Complete**
 
 **Summary of Your Information:**
 [Recap key points from this section]
@@ -2151,13 +2151,13 @@ async def generate_draft_content(history, business_context, current_question="",
     Create a comprehensive, detailed, research-backed draft answer for this business question: "{current_question}"
     
     Business Context (PRIMARY IDENTIFIERS):
-    - Business Name: {business_name}
+        - Business Name: {business_name}
     - PRIMARY INDUSTRY: {industry.upper()} ⭐ (THIS IS THE CORE BUSINESS TYPE)
     - Business Structure: {business_type}
     - Location: {location}
     
     Previous Answers and Context:
-    {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
+        {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
     
     Generate a complete, well-structured draft answer that:
         1. Directly answers the question with specific, data-backed content for a {industry.upper()} business
@@ -2305,10 +2305,10 @@ We believe that every customer deserves solutions that are tailored to their spe
 {business_name} stands for combining industry expertise with personalized service, making professional solutions accessible and effective for customers in the {industry} sector."""
     
     elif any(keyword in current_question for keyword in ['sales', 'projected sales', 'first year', 'sales projections', 'revenue', 'income']):
-        return generate_sales_projection_draft(business_context, current_question)
+        return "Based on your business goals, here's a draft for your first-year sales projections: Your projected sales for the first year should be based on realistic market analysis and conservative estimates. Consider factors like your target market size, customer acquisition rate, pricing strategy, and seasonal variations. Focus on creating projections that account for market penetration, customer lifetime value, and repeat business. Think about how you'll reach customers and what conversion rates you can realistically expect based on industry benchmarks and your marketing capabilities."
     
     elif any(keyword in current_question for keyword in ['startup costs', 'estimated startup costs', 'one-time expenses', 'initial costs', 'launch costs']):
-        return generate_startup_costs_table_draft(business_context, current_question)
+        return "Based on your business needs, here's a draft for your startup costs: Your estimated startup costs should include essential one-time expenses like equipment purchases, initial inventory, legal fees, permits and licenses, website development, initial marketing campaigns, and office setup. Consider both essential startup costs and optional investments that could be deferred to manage cash flow. Focus on creating a comprehensive list of all one-time expenses needed to launch your business, including equipment, technology, legal requirements, and initial marketing. Think about equipment leasing vs. buying, bulk purchasing discounts, and phased implementation to optimize your startup investment."
     
     elif any(keyword in current_question for keyword in ['financial', 'budget', 'costs', 'expenses', 'funding', 'investment']):
         return "Based on your business requirements, here's a draft for your financial planning: Your financial plan should include startup costs, operating expenses, cash flow projections, and funding requirements. Consider fixed costs (rent, salaries, equipment) and variable costs (materials, marketing, commissions). Focus on creating realistic budgets, identifying funding sources, and planning for financial sustainability. Think about break-even analysis, profit margins, and financial contingency planning to ensure long-term viability."
@@ -2380,7 +2380,7 @@ Focus on validating your concept before full development through market research
         return "Based on your business vision, here's a draft mission statement: [Business name] aims to [core purpose] by [key approach] to [target outcome]. Consider what your business stands for and how you would describe it in one compelling sentence. Think about your core values, purpose, and what makes you unique. Focus on creating a clear, inspiring statement that guides your business decisions and resonates with your target audience."
     
     elif any(keyword in recent_text for keyword in ['sales', 'projected sales', 'first year', 'sales projections', 'revenue', 'income']):
-        return generate_sales_projection_draft(business_context, current_question)
+        return "Based on your business goals, here's a draft for your first-year sales projections: Your projected sales for the first year should be based on realistic market analysis and conservative estimates. Consider factors like your target market size, customer acquisition rate, pricing strategy, and seasonal variations. Focus on creating projections that account for market penetration, customer lifetime value, and repeat business. Think about how you'll reach customers and what conversion rates you can realistically expect based on industry benchmarks and your marketing capabilities."
     
     elif any(keyword in recent_text for keyword in ['startup costs', 'estimated startup costs', 'one-time expenses', 'initial costs', 'launch costs']):
         return "Based on your business needs, here's a draft for your startup costs: Your estimated startup costs should include essential one-time expenses like equipment purchases, initial inventory, legal fees, permits and licenses, website development, initial marketing campaigns, and office setup. Consider both essential startup costs and optional investments that could be deferred to manage cash flow. Focus on creating a comprehensive list of all one-time expenses needed to launch your business, including equipment, technology, legal requirements, and initial marketing. Think about equipment leasing vs. buying, bulk purchasing discounts, and phased implementation to optimize your startup investment."
@@ -2468,10 +2468,10 @@ async def refine_user_input(user_notes, business_context, current_question=""):
     Take this user's rough notes/ideas and refine them into a comprehensive, well-structured answer for the question: "{current_question}"
     
     User's Notes/Ideas:
-    "{cleaned_notes}"
+        "{cleaned_notes}"
     
     Business Context (PRIMARY IDENTIFIERS):
-    - Business Name: {business_name}
+        - Business Name: {business_name}
     - PRIMARY INDUSTRY: {industry.upper()} ⭐ (THIS IS THE CORE BUSINESS TYPE)
     - Business Structure: {business_type}
     - Location: {location}
@@ -2487,7 +2487,7 @@ async def refine_user_input(user_notes, business_context, current_question=""):
     8. NEVER mentions unrelated industries - stay focused on {industry.upper()}
     
     Structure your refined version with:
-    **Refined Core Concept:**
+        **Refined Core Concept:**
     [Their idea, polished and expanded for {industry.upper()} business]
     
     **{industry.upper()} Industry-Specific Application:**
@@ -2587,16 +2587,16 @@ async def generate_scrapping_content(history, business_context, notes, current_q
     Generate a comprehensive, refined analysis that helps answer this business question: "{current_question}"
     
     Business Context (PRIMARY IDENTIFIERS):
-    - Business Name: {business_name}
+        - Business Name: {business_name}
     - PRIMARY INDUSTRY: {industry.upper()} ⭐ (THIS IS THE CORE BUSINESS TYPE)
     - Business Structure: {business_type}
     - Location: {location}
     
     Previous Context:
-    {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
+        {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
     
     Research Notes (if provided):
-    {notes if notes else 'No specific research notes provided'}
+        {notes if notes else 'No specific research notes provided'}
     
     Create a detailed, refined analysis that:
         1. Synthesizes relevant information from the {industry.upper()} business context
@@ -2609,7 +2609,7 @@ async def generate_scrapping_content(history, business_context, notes, current_q
     8. NEVER mentions unrelated industries - stay focused on {industry.upper()}
     
     Structure your analysis with these sections:
-    **Business Context Analysis:**
+        **Business Context Analysis:**
     [Overview of the {industry.upper()} business and how it relates to the question]
     
     **{industry.upper()} Industry-Specific Insights:**
@@ -2761,13 +2761,13 @@ async def generate_support_content(history, business_context, current_question="
     ⚠️ CRITICAL REQUIREMENT: Your entire response must be DIRECTLY RELEVANT to answering this specific question. Do not provide general business advice or information that doesn't directly help answer this question. Stay focused and on-topic.
     
     Business Context (PRIMARY IDENTIFIERS):
-    - Business Name: {business_name}
+        - Business Name: {business_name}
     - PRIMARY INDUSTRY: {industry.upper()} ⭐ (THIS IS THE CORE BUSINESS TYPE)
     - Business Structure: {business_type}
     - Location: {location}
     
     Previous Context from Conversation:
-    {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
+        {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
     
     Provide extremely detailed, research-backed guidance that DIRECTLY ANSWERS the current question:
         1. Incorporates actual research findings, statistics, and data from authoritative sources
@@ -2878,13 +2878,13 @@ async def generate_additional_draft_content(history, business_context, current_q
     Current Question: "{current_question}"
     
     Business Context (PRIMARY IDENTIFIERS):
-    - Business Name: {business_name}
+        - Business Name: {business_name}
     - PRIMARY INDUSTRY: {industry.upper()} ⭐ (THIS IS THE CORE BUSINESS TYPE)
     - Business Structure: {business_type}
     - Location: {location}
     
     Previous Context:
-    {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
+        {' | '.join(previous_answers[-3:]) if previous_answers else 'No previous context available'}
     
     Generate ENHANCED, ADDITIONAL content that:
         1. Takes the original answer to the next level with MORE detail for {industry.upper()} businesses
@@ -2897,7 +2897,7 @@ async def generate_additional_draft_content(history, business_context, current_q
     8. NEVER mentions unrelated industries - stay focused on {industry.upper()}
     
     Structure your enhanced draft with:
-    **Enhanced Main Content:**
+        **Enhanced Main Content:**
     [Take the original concept and elevate it with unique insights for {industry.upper()}]
     
     **Unique Angles & Innovation for {industry.upper()}:**
@@ -3037,29 +3037,6 @@ def extract_business_context_from_history(history):
     
     print(f"🔍 DEBUG - Extracting business context from {len(history)} messages with weighted priority")
     
-    # CRITICAL OVERRIDE: Check for plumbing business mentions first
-    plumbing_override = False
-    for msg in history:
-        if msg["role"] == "user" and msg.get("content"):
-            content_lower = msg["content"].lower()
-            # Strong plumbing indicators that should override everything
-            plumbing_indicators = [
-                "plumbing business", "plumbing company", "plumbing service", "plumber", 
-                "hvac", "pipe repair", "drain cleaning", "plumbing work", "plumbing industry",
-                "plumbing contractor", "plumbing excellence", "education-focused approach to plumbing",
-                "plumbing with education", "plumbing", "pipe", "drain", "hvac", "water heater",
-                "toilet repair", "sink repair", "faucet repair", "pipe installation"
-            ]
-            for indicator in plumbing_indicators:
-                if indicator in content_lower:
-                    plumbing_override = True
-                    business_context["industry"] = "Plumbing"
-                    context_weights["industry"] = 100  # Maximum weight
-                    print(f"🔍 DEBUG - 🚨 PLUMBING OVERRIDE ACTIVATED: Found '{indicator}' - setting industry to Plumbing (weight 100)")
-                    break
-            if plumbing_override:
-                break
-    
     # First pass: Identify KYC questions to prioritize their answers
     kyc_question_indices = {}
     for i, msg in enumerate(history):
@@ -3183,8 +3160,8 @@ def extract_business_context_from_history(history):
                     # Check if it looks like a business name (contains letters and possibly dots, hyphens)
                     if any(c.isalpha() for c in potential_name) and not potential_name.lower() in ["small business", "corporation", "llc", "inc"]:
                             business_context["business_name"] = potential_name
-                            context_weights["business_name"] = 50
-                            print(f"🔍 DEBUG - Found direct business name: {potential_name} (weight 50)")
+                        context_weights["business_name"] = 50
+                        print(f"🔍 DEBUG - Found direct business name: {potential_name} (weight 50)")
             
             # Extract industry information - Only if we don't have high-priority industry (weight < 50)
             # Use keyword matching but with LOW weight (10-30) - easily overridden by KYC answers
@@ -3336,16 +3313,16 @@ async def handle_competitor_research_request(user_input, business_context, histo
         Based on the following research results, provide a comprehensive competitor analysis for a business in the {industry} industry:
         
         Business Context:
-        - Industry: {industry}
+            - Industry: {industry}
         - Location: {location}
         - Business Type: {business_type}
         - Business Name: {business_name}
         
         Research Results:
-        {chr(10).join([f"Query: {r['query']}{chr(10)}Result: {r['result']}{chr(10)}" for r in competitor_research_results])}
+            {chr(10).join([f"Query: {r['query']}{chr(10)}Result: {r['result']}{chr(10)}" for r in competitor_research_results])}
         
         Please provide:
-        1. Main competitors identified
+            1. Main competitors identified
         2. Market positioning analysis
         3. Competitive advantages and weaknesses
         4. Market opportunities
@@ -3406,7 +3383,7 @@ async def generate_business_plan_artifact(session_data, conversation_history):
     Session Data: {json.dumps(session_data, indent=2)}
     
     Deep Research Conducted:
-    Market Analysis: {market_research}
+        Market Analysis: {market_research}
     Competitor Analysis: {competitor_research}
     Industry Trends: {industry_trends}
     Financial Benchmarks: {financial_benchmarks}
@@ -3462,7 +3439,7 @@ async def generate_roadmap_artifact(session_data, business_plan_data):
     Legal Requirements Research: {legal_research}
     
     Include:
-    - Specific timelines and deadlines
+        - Specific timelines and deadlines
     - Clear task ownership (Angel vs User)
     - 3 recommended vendors/platforms per category with current pricing
     - Industry-specific milestones
@@ -3653,7 +3630,7 @@ async def generate_detailed_roadmap(session_data, history):
     Generate a comprehensive, research-backed launch roadmap for "{business_name}" - a {business_type} in the {industry} industry located in {location}.
     
     Use the following business context from the completed business plan:
-    - Business Name: {business_name}
+        - Business Name: {business_name}
     - Industry: {industry}
     - Location: {location}
     - Business Type: {business_type}
@@ -3701,7 +3678,7 @@ async def generate_detailed_roadmap(session_data, history):
     - Long-term sustainability planning
     
     For each phase, provide:
-    - Specific Tasks: Detailed, actionable steps
+        - Specific Tasks: Detailed, actionable steps
     - Timeline: Realistic time estimates
     - Resources Needed: Required tools, services, and expertise
     - Success Metrics: How to measure progress
@@ -3805,7 +3782,7 @@ Your target audience consists of {business_type} businesses and professionals in
 
 **Solution Approach:**
 {business_name} provides innovative, specialized solutions that directly address these pain points through:
-• Industry-specific expertise and knowledge
+    • Industry-specific expertise and knowledge
 • Streamlined processes and methodologies
 • Customized approaches for different client needs
 • Ongoing support and guidance
@@ -3898,109 +3875,3 @@ def generate_supplier_relationships_draft(business_context, history):
     business_type = business_context.get("business_type", "your business type")
     
     return f"Based on your business requirements, here's a comprehensive draft for your supplier and vendor relationships: {business_name} will need to identify key suppliers and vendors who can provide essential products, services, or resources for your {business_type} operations in the {industry} sector. Consider building relationships with reliable partners who offer competitive pricing, quality products, and consistent service. Key partners might include suppliers for raw materials or components specific to {industry}, service providers for essential business functions, and strategic partners who can help you reach your target market or enhance your offerings. Focus on reliability, quality, pricing, and long-term partnership potential. Evaluate potential partners based on their track record in the {industry} sector, financial stability, capacity to meet your needs, and alignment with your business values. Consider backup suppliers to ensure business continuity and negotiate favorable terms that support your growth objectives in the {industry} market."
-def generate_startup_costs_table_draft(business_context, current_question):
-    """Generate a table-based startup costs draft with totals"""
-    industry = business_context.get("industry", "your industry").lower()
-    business_name = business_context.get("business_name", "your business")
-    
-    # Industry-specific startup costs
-    if "plumbing" in industry:
-        return f"""Based on your plumbing business needs, here's a comprehensive startup costs table:
-
-**Startup Costs Breakdown**
-
-| Category | Item | Estimated Cost | Notes |
-|----------|------|----------------|-------|
-| **Equipment & Tools** | | | |
-| | Plumbing tools & equipment | $3,000 - $5,000 | Wrenches, pipe cutters, drain snakes, etc. |
-| | Vehicle/van setup | $2,000 - $4,000 | Signage, equipment storage, GPS |
-| | Safety equipment | $500 - $1,000 | Hard hats, safety glasses, first aid kits |
-| **Licensing & Legal** | | | |
-| | Business license | $200 - $500 | Varies by location |
-| | Plumbing contractor license | $300 - $800 | Required for plumbing work |
-| | Insurance (general liability) | $1,200 - $2,400 | Annual premium |
-| | Legal consultation | $500 - $1,500 | Business setup, contracts |
-| **Technology & Marketing** | | | |
-| | Website development | $1,000 - $3,000 | Professional plumbing website |
-| | Business phone system | $200 - $500 | Setup and monthly service |
-| | Marketing materials | $500 - $1,500 | Business cards, flyers, online ads |
-| | Customer management software | $300 - $800 | Annual subscription |
-| **Working Capital** | | | |
-| | Initial inventory | $1,000 - $2,000 | Common plumbing parts & supplies |
-| | Emergency fund | $2,000 - $5,000 | 3-6 months operating expenses |
-
-**Total Estimated Startup Costs: $12,700 - $27,500**
-
-*Note: These are industry-specific estimates for plumbing businesses. Actual costs may vary based on location, scale, and specific requirements.*"""
-    
-    else:
-        return f"""Based on your {industry} business needs, here's a comprehensive startup costs table:
-
-**Startup Costs Breakdown**
-
-| Category | Item | Estimated Cost | Notes |
-|----------|------|----------------|-------|
-| **Equipment & Supplies** | | | |
-| | Essential equipment | $2,000 - $5,000 | Industry-specific tools/equipment |
-| | Initial inventory | $1,000 - $3,000 | Starting stock/supplies |
-| **Licensing & Legal** | | | |
-| | Business license | $200 - $500 | Varies by location |
-| | Professional licenses | $300 - $1,000 | Industry-specific requirements |
-| | Insurance | $800 - $2,000 | Annual premium |
-| | Legal consultation | $500 - $1,500 | Business setup, contracts |
-| **Technology & Marketing** | | | |
-| | Website development | $1,000 - $3,000 | Professional website |
-| | Business phone | $200 - $500 | Setup and service |
-| | Marketing materials | $500 - $1,500 | Business cards, advertising |
-| | Software/tools | $300 - $800 | Annual subscriptions |
-| **Working Capital** | | | |
-| | Emergency fund | $2,000 - $5,000 | 3-6 months operating expenses |
-
-**Total Estimated Startup Costs: $8,800 - $23,800**
-
-*Note: These are general estimates. Actual costs may vary based on your specific {industry} business requirements and location.*"""
-
-def generate_sales_projection_draft(business_context, current_question):
-    """Generate accurate sales projection draft with correct calculations"""
-    industry = business_context.get("industry", "your industry").lower()
-    business_name = business_context.get("business_name", "your business")
-    
-    if "plumbing" in industry:
-        return f"""Based on your plumbing business goals, here's a draft for your first-year sales projections:
-
-**Sales Projection Calculation**
-
-**Weekly Job Estimate:** Starting with 4 jobs per week for a growing plumbing business provides a steady flow of work while allowing room for marketing and operations.
-
-**Service Mix:** Include a mix of installations and repairs to diversify income streams and mitigate risks from seasonal demand fluctuations.
-
-**Revenue Calculation:**
-- **Jobs per week:** 4
-- **Average billable hours per job:** 8 hours
-- **Hourly rate:** $120
-- **Weeks per year:** 52
-
-**Annual Revenue Calculation:**
-4 jobs/week × 8 hours/job × $120/hour × 52 weeks = **$199,680**
-
-**Customer Base Growth:** As reputation and customer base grow, job frequency might increase, enhancing revenue potential.
-
-**Critical Considerations:**
-- **Demand Variability:** Be prepared for fluctuations in demand and consider strategies like targeted marketing or seasonal promotions to maintain consistent job flow.
-- **Capacity Planning:** Ensure sufficient resources and tools to handle the projected workload efficiently.
-
-*Note: These projections are based on industry-standard rates for plumbing services. Actual results may vary based on market conditions, competition, and business execution.*"""
-    
-    else:
-        return f"""Based on your {industry} business goals, here's a draft for your first-year sales projections:
-
-Your projected sales for the first year should be based on realistic market analysis and conservative estimates. Consider factors like your target market size, customer acquisition rate, pricing strategy, and seasonal variations. Focus on creating projections that account for market penetration, customer lifetime value, and repeat business. Think about how you'll reach customers and what conversion rates you can realistically expect based on industry benchmarks and your marketing capabilities.
-
-**Key Factors to Consider:**
-- Target market size and accessibility
-- Pricing strategy and competitive positioning
-- Customer acquisition costs and conversion rates
-- Seasonal variations in demand
-- Repeat business and customer lifetime value
-
-*Note: Create detailed monthly projections and consider different scenarios (conservative, realistic, optimistic) to plan for various market conditions.*"""
