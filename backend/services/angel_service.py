@@ -573,7 +573,11 @@ def suggest_draft_if_relevant(reply, session_data, user_input, history):
     return reply
 
 def check_for_section_summary(current_tag, session_data, history):
-    """Check if we need to provide a section summary based on the current question tag"""
+    """Check if we need to provide a section summary based on the current question tag
+    
+    TIMING: This checks if user just ANSWERED a section-ending question.
+    It should trigger AFTER user answers Q4, Q8, Q12, Q17, Q25, Q31, Q37, Q41, or Q45.
+    """
     
     if not current_tag or not current_tag.startswith("BUSINESS_PLAN."):
         return None
@@ -583,7 +587,8 @@ def check_for_section_summary(current_tag, session_data, history):
     except (ValueError, IndexError):
         return None
     
-    # Define section boundaries and their summary requirements
+    # Define section boundaries - these are the LAST questions in each section
+    # When user answers these questions, we show a section summary BEFORE moving to next section
     section_boundaries = {
         4: "SECTION 1 SUMMARY REQUIRED: After BUSINESS_PLAN.04, provide:",
         8: "SECTION 2 SUMMARY REQUIRED: After BUSINESS_PLAN.08, provide:",
@@ -598,6 +603,7 @@ def check_for_section_summary(current_tag, session_data, history):
     
     # Check if we're at a section boundary
     if question_num in section_boundaries:
+        print(f"✅ SECTION SUMMARY TRIGGERED: User just answered Q{question_num}, showing {get_section_name(question_num)} section summary")
         return {
             "trigger_question": question_num,
             "summary_type": section_boundaries[question_num],
@@ -1815,15 +1821,18 @@ CRITICAL INSTRUCTIONS:
     current_tag_before_update = session_data.get("asked_q") if session_data else None
     section_summary_info = None
     
-    # DISABLED: Section summaries were causing question 46 to be skipped
-    # Don't show section summary if user clicked Accept (they want to proceed)
-    # if not is_accept_command:
-    #     section_summary_info = check_for_section_summary(current_tag_before_update, session_data, history)
+    # RE-ENABLED: Section summaries with proper timing to prevent question skipping
+    # Only show section summary if user just answered a section-ending question
+    # Don't show if user clicked Accept (they want to proceed from summary)
+    if not is_accept_command and not is_command_response:
+        # Check if we just completed a section-ending question
+        section_summary_info = check_for_section_summary(current_tag_before_update, session_data, history)
     
     # Extract question tag from reply and update session data BEFORE sequence validation
+    # IMPORTANT: Don't update asked_q if we're showing a section summary
     patch_session = {}
     tag_match = re.search(r'\[\[Q:([A-Z_]+\.\d+)\]\]', reply_content)
-    if tag_match and session_data:
+    if tag_match and session_data and not section_summary_info:
         new_question_tag = tag_match.group(1)
         current_asked_q = session_data.get("asked_q", "")
         
@@ -1833,6 +1842,8 @@ CRITICAL INSTRUCTIONS:
             session_data["asked_q"] = new_question_tag
             patch_session["asked_q"] = new_question_tag
             print(f"🔧 Updating session asked_q: {current_asked_q} → {new_question_tag}")
+    elif section_summary_info:
+        print(f"🔒 Section summary active - NOT updating asked_q (staying at {current_tag_before_update})")
     
     # Validate business plan question sequence (now with updated session data)
     reply_content = validate_business_plan_sequence(reply_content, session_data)
@@ -1854,6 +1865,10 @@ CRITICAL INSTRUCTIONS:
     
     if section_summary_info:
         print(f"🎯 SECTION SUMMARY TRIGGERED for {section_summary_info['section_name']} at question {current_tag_before_update}")
+        
+        # CRITICAL: Don't let the question number increment during section summary
+        # The summary shows AFTER answering the last question of a section
+        # We stay on the same question number until user accepts the summary
         
         # Add section summary requirements to the system prompt
         summary_instruction = f"""
@@ -1882,7 +1897,10 @@ Please confirm that this information is accurate before we move to the next sect
 
 [[ACCEPT_MODIFY_BUTTONS]]"
 
-CRITICAL: End your response with [[ACCEPT_MODIFY_BUTTONS]] to trigger the Accept/Modify buttons. Do NOT ask the next question immediately.
+CRITICAL: 
+- End your response with [[ACCEPT_MODIFY_BUTTONS]] to trigger the Accept/Modify buttons
+- Do NOT ask the next question immediately
+- Do NOT include any question tags like [[Q:BUSINESS_PLAN.XX]] in this response
 """
         # Add this instruction to the messages
         msgs.append({"role": "system", "content": summary_instruction})
@@ -1896,6 +1914,10 @@ CRITICAL: End your response with [[ACCEPT_MODIFY_BUTTONS]] to trigger the Accept
             stream=False
         )
         reply_content = response.choices[0].message.content
+        
+        # IMPORTANT: Clear any question tags from the summary response to prevent asked_q from updating
+        reply_content = re.sub(r'\[\[Q:[A-Z_]+\.\d+\]\]', '', reply_content)
+        print(f"🔒 Section summary generated - keeping asked_q at {current_tag_before_update} until user accepts")
     
     # Ensure proper question formatting with line breaks and structure
     reply_content = ensure_proper_question_formatting(reply_content, session_data)

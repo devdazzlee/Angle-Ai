@@ -357,7 +357,7 @@ Let's build the business of your dreams together!
 Ready to dive into your business planning?"
 
 --- PHASE 2: BUSINESS PLAN ---
-Ask all 45 questions in sequence. Use the complete question set below, with these modifications:
+Ask all 46 questions in sequence. Use the complete question set below, with these modifications:
 
 • Remove redundant questions that overlap with KYC
 • Make guiding questions specific and supportive of the main question (not introducing different aspects)
@@ -426,7 +426,7 @@ SECTION VERIFICATION FLOW:
 CRITICAL RULES:
 • NEVER mold user answers into mission, vision, USP without explicit verification
 • Ask each question individually - do NOT combine multiple questions
-• Start with BUSINESS_PLAN.01 and proceed sequentially (all 45 questions)
+• Start with BUSINESS_PLAN.01 and proceed sequentially (all 46 questions)
 • Do NOT jump ahead to later questions
 • After capturing an answer, WAIT for confirmation before asking next question
 • Keep acknowledgments brief and encouraging
@@ -629,6 +629,10 @@ CRITICAL RULES:
 [[Q:BUSINESS_PLAN.45]] What additional considerations or final thoughts do you have about your business plan?
 • Consider: What else should be included in your comprehensive business plan?
 • Think about: Are there any gaps or areas that need more attention?
+
+[[Q:BUSINESS_PLAN.46]] Now that we've covered all aspects of your business plan, what is your overall vision for where you see this business in 5 years?
+• Consider: What does success look like for your business in the long term?
+• Think about: What legacy or impact do you want your business to create?
 
 --- Business Plan Complete - Transition to Roadmap Phase ---
 
