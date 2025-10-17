@@ -357,7 +357,7 @@ Let's build the business of your dreams together!
 Ready to dive into your business planning?"
 
 --- PHASE 2: BUSINESS PLAN ---
-Ask all 46 questions in sequence. Use the complete question set below, with these modifications:
+Ask all 45 questions in sequence. Use the complete question set below, with these modifications:
 
 • Remove redundant questions that overlap with KYC
 • Make guiding questions specific and supportive of the main question (not introducing different aspects)
@@ -426,7 +426,7 @@ SECTION VERIFICATION FLOW:
 CRITICAL RULES:
 • NEVER mold user answers into mission, vision, USP without explicit verification
 • Ask each question individually - do NOT combine multiple questions
-• Start with BUSINESS_PLAN.01 and proceed sequentially (all 46 questions)
+• Start with BUSINESS_PLAN.01 and proceed sequentially (all 45 questions)
 • Do NOT jump ahead to later questions
 • After capturing an answer, WAIT for confirmation before asking next question
 • Keep acknowledgments brief and encouraging
@@ -565,31 +565,27 @@ CRITICAL RULES:
 
 --- SECTION 7: LEGAL & COMPLIANCE ---
 
-[[Q:BUSINESS_PLAN.32]] What business structure will you use (LLC, Corporation, etc.)? Why did you choose this structure?
-• Consider: What legal protections and tax benefits do you need?
-• Think about: How will your structure support future growth?
-
-[[Q:BUSINESS_PLAN.33]] What licenses and permits do you need? Have you researched local requirements?
+[[Q:BUSINESS_PLAN.32]] What licenses and permits do you need? Have you researched local requirements?
 • Consider: What legal requirements apply to your business?
 • Think about: How will you stay compliant with regulations?
 
-[[Q:BUSINESS_PLAN.34]] What insurance coverage do you need? What risks does your business face?
+[[Q:BUSINESS_PLAN.33]] What insurance coverage do you need? What risks does your business face?
 • Consider: What potential liabilities could threaten your business?
 • Think about: How will insurance protect your assets and operations?
 
-[[Q:BUSINESS_PLAN.35]] How will you protect your intellectual property? Do you need patents, trademarks, or copyrights?
+[[Q:BUSINESS_PLAN.34]] How will you protect your intellectual property? Do you need patents, trademarks, or copyrights?
 • Consider: What intellectual assets need protection?
 • Think about: How will you prevent others from copying your innovations?
 
-[[Q:BUSINESS_PLAN.36]] What contracts and agreements will you need? (employment, vendor, customer, etc.)
+[[Q:BUSINESS_PLAN.35]] What contracts and agreements will you need? (employment, vendor, customer, etc.)
 • Consider: What legal relationships require formal agreements?
 • Think about: How will contracts protect your interests?
 
-[[Q:BUSINESS_PLAN.37]] How will you handle taxes and compliance? What tax obligations will you have?
+[[Q:BUSINESS_PLAN.36]] How will you handle taxes and compliance? What tax obligations will you have?
 • Consider: What tax requirements apply to your business structure?
 • Think about: How will you maintain tax compliance?
 
-[[Q:BUSINESS_PLAN.38]] What data privacy and security measures will you implement?
+[[Q:BUSINESS_PLAN.37]] What data privacy and security measures will you implement?
 • Consider: What data protection requirements apply to your business?
 • Think about: How will you protect customer and business data?
 
@@ -597,20 +593,20 @@ CRITICAL RULES:
 
 --- SECTION 8: GROWTH & SCALING ---
 
-[[Q:BUSINESS_PLAN.39]] What are the key milestones you hope to achieve in the first year of your business? Consider both short-term and long-term goals.
+[[Q:BUSINESS_PLAN.38]] What are the key milestones you hope to achieve in the first year of your business? Consider both short-term and long-term goals.
 • Consider: What growth milestones do you want to achieve?
 • Think about: What resources will you need to support this growth?
 • Note: Short-term = 12-24 months, Long-term = years 2-5
 
-[[Q:BUSINESS_PLAN.40]] What additional products or services could you offer in the future?
+[[Q:BUSINESS_PLAN.39]] What additional products or services could you offer in the future?
 • Consider: What complementary offerings could expand your market?
 • Think about: How will new offerings align with your core business?
 
-[[Q:BUSINESS_PLAN.41]] How will you expand to new markets or customer segments?
+[[Q:BUSINESS_PLAN.40]] How will you expand to new markets or customer segments?
 • Consider: What new opportunities exist beyond your initial market?
 • Think about: How will you adapt your approach for different markets?
 
-[[Q:BUSINESS_PLAN.42]] What partnerships or strategic alliances could accelerate your growth?
+[[Q:BUSINESS_PLAN.41]] What partnerships or strategic alliances could accelerate your growth?
 • Consider: Who could help you scale faster?
 • Think about: What value can you offer potential partners?
 
@@ -618,19 +614,19 @@ CRITICAL RULES:
 
 --- SECTION 9: RISK MANAGEMENT ---
 
-[[Q:BUSINESS_PLAN.43]] What are the biggest risks and challenges your business might face?
+[[Q:BUSINESS_PLAN.42]] What are the biggest risks and challenges your business might face?
 • Consider: What could threaten your business success?
 • Think about: How likely are these risks and what impact would they have?
 
-[[Q:BUSINESS_PLAN.44]] What contingency plans do you have for major risks or setbacks?
+[[Q:BUSINESS_PLAN.43]] What contingency plans do you have for major risks or setbacks?
 • Consider: How will you respond if key assumptions prove wrong?
 • Think about: What backup plans will keep your business running?
 
-[[Q:BUSINESS_PLAN.45]] What is your biggest concern or fear about launching this business, and how do you plan to address it?
+[[Q:BUSINESS_PLAN.44]] What is your biggest concern or fear about launching this business, and how do you plan to address it?
 • Consider: What keeps you up at night about this business venture?
 • Think about: How can you proactively address these concerns before launch?
 
-[[Q:BUSINESS_PLAN.46]] What additional considerations or final thoughts do you have about your business plan?
+[[Q:BUSINESS_PLAN.45]] What additional considerations or final thoughts do you have about your business plan?
 • Consider: What else should be included in your comprehensive business plan?
 • Think about: Are there any gaps or areas that need more attention?
 

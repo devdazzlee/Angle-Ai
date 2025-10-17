@@ -84,11 +84,12 @@ def is_draft_or_support_response(response_text: str) -> bool:
     
     # Check for actual draft/support indicators
     draft_indicators = [
-        "Here's a draft for you:",
-        "Here's a draft based on what you've shared",
+        "Here's a draft",
+        "Here's a research-backed draft",
+        "Here's a draft based on",
         "Let's work through this together",
-        "Here's a refined version of your thoughts",
-        "I'll create additional content for you"
+        "Here's a refined version",
+        "I'll create additional content"
     ]
     return any(indicator in response_text for indicator in draft_indicators)
 
@@ -99,7 +100,8 @@ def is_moving_to_next_question(response_text: str) -> bool:
     # FIRST: Check if this is a Draft/Support/Scrapping response
     # These should NEVER be considered as "moving to next question"
     draft_or_support_indicators = [
-        "here's a draft for you:",
+        "here's a draft",
+        "here's a research-backed draft",
         "here's a draft based on",
         "let's work through this together",
         "here's a refined version",
@@ -172,6 +174,9 @@ async def should_show_accept_modify_buttons(ai_response: str, user_last_input: s
     # Check if AI is asking a new question (has [[Q: tag)
     has_question_tag = re.search(r'\[\[Q:[A-Z_]+\.\d+\]\]', ai_response) is not None
     
+    # Check if AI explicitly requested Accept/Modify buttons
+    has_accept_modify_tag = "[[ACCEPT_MODIFY_BUTTONS]]" in ai_response
+    
     # Show buttons if:
         # 1. It's a command response (Draft/Support/Scrapping), OR
     # 2. User provided an answer in Business Plan AND AI acknowledged it AND hasn't moved to next question yet, OR
@@ -185,7 +190,11 @@ async def should_show_accept_modify_buttons(ai_response: str, user_last_input: s
         ("phase" in ai_response.lower() or "profile" in ai_response.lower() or "plan" in ai_response.lower())
     )
     
-    if is_command_request or is_draft_response:
+    if has_accept_modify_tag:
+        # AI explicitly requested Accept/Modify buttons (section summary, etc.)
+        should_show = True
+        reason = "AI requested Accept/Modify buttons"
+    elif is_command_request or is_draft_response:
         # Only show buttons for Draft commands, not Support or Scrapping
         if user_input_lower == "draft":
             should_show = not is_next_question
@@ -218,6 +227,7 @@ async def should_show_accept_modify_buttons(ai_response: str, user_last_input: s
     print(f"  - Is user answer (BP): {is_user_answer}")
     print(f"  - Has acknowledgment: {has_acknowledgment}")
     print(f"  - Has question tag: {has_question_tag}")
+    print(f"  - Has accept/modify tag: {has_accept_modify_tag}")
     print(f"  - Is phase completion: {is_phase_completion}")
     print(f"  - Reason: {reason}")
     print(f"  - Should show buttons: {should_show}")
@@ -581,9 +591,9 @@ def check_for_section_summary(current_tag, session_data, history):
         17: "SECTION 4 SUMMARY REQUIRED: After BUSINESS_PLAN.17, provide:",
         25: "SECTION 5 SUMMARY REQUIRED: After BUSINESS_PLAN.25, provide:",
         31: "SECTION 6 SUMMARY REQUIRED: After BUSINESS_PLAN.31, provide:",
-        38: "SECTION 7 SUMMARY REQUIRED: After BUSINESS_PLAN.38, provide:",
-        42: "SECTION 8 SUMMARY REQUIRED: After BUSINESS_PLAN.42, provide:",
-        46: "SECTION 9 SUMMARY REQUIRED: After BUSINESS_PLAN.46, provide:"
+        37: "SECTION 7 SUMMARY REQUIRED: After BUSINESS_PLAN.37, provide:",
+        41: "SECTION 8 SUMMARY REQUIRED: After BUSINESS_PLAN.41, provide:",
+        45: "SECTION 9 SUMMARY REQUIRED: After BUSINESS_PLAN.45, provide:"
     }
     
     # Check if we're at a section boundary
@@ -605,9 +615,9 @@ def get_section_name(question_num):
         17: "Location & Operations",
         25: "Financial Planning",
         31: "Marketing & Sales",
-        38: "Legal & Compliance",
-        42: "Growth & Scaling",
-        46: "Risk Management"
+        37: "Legal & Compliance",
+        41: "Growth & Scaling",
+        45: "Risk Management"
     }
     return section_names.get(question_num, "Unknown Section")
 
@@ -894,7 +904,7 @@ Once you're ready, we'll begin the Business Planning phase where we'll dive deep
 *"The way to get started is to quit talking and begin doing."* – Walt Disney"""
     
     # Check if we should show Accept/Modify buttons
-    button_detection = should_show_accept_modify_buttons(
+    button_detection = await should_show_accept_modify_buttons(
         user_last_input="KYC completion",
         ai_response=transition_message,
         session_data=session_data
@@ -1003,7 +1013,7 @@ Please review your business plan summary above. If everything looks accurate and
 What would you like to do?"""
 
     # Check if we should show Accept/Modify buttons for Business Plan completion
-    button_detection = should_show_accept_modify_buttons(
+    button_detection = await should_show_accept_modify_buttons(
         user_last_input="Business Plan completion",
         ai_response=transition_message,
         session_data=session_data
@@ -1510,13 +1520,10 @@ Do NOT include question numbers, progress percentages, or step counts in your re
         if current_tag and current_tag.startswith("KYC."):
             try:
                 question_num = int(current_tag.split(".")[1])
-                # Check if user just answered the final question (19 or higher) with "proactive" or "non-proactive" response
+                # Check if user just answered the final question (19) with any response
                 if (question_num >= 19 and 
                     not current_tag.endswith("_ACK") and
-                    ("proactive" in user_content.lower() or 
-                     user_content.lower().strip() in ["yes", "y", "yeah", "yep", "sure", "ok", "okay", "absolutely", "definitely", "no", "n", "nope", "NO", "NOPE" , "proactive" , "Proactive" , "excellent" , "Excellent" , "fantastic" , "Fantastic" , "congratulations" , "Congratulations"] or
-                     "yes" in user_content.lower() or
-                     "no" in user_content.lower())):
+                    len(user_content.strip()) > 0):
                     
                     print(f"🎯 User answered final KYC question ({question_num}) - triggering completion immediately BEFORE AI response")
                     # Trigger completion immediately after acknowledgment
@@ -1535,61 +1542,8 @@ Do NOT include question numbers, progress percentages, or step counts in your re
             except (ValueError, IndexError):
                 pass
     
-    # Handle Accept response for verification
-    if user_content.lower() == "accept":
-        # Check if we're in a verification flow
-        if session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
-            # Move to next question in business plan
-            current_tag = session_data.get("asked_q", "BUSINESS_PLAN.01")
-            if current_tag and current_tag.startswith("BUSINESS_PLAN."):
-                try:
-                    current_num = int(current_tag.split(".")[1])
-                    next_num = current_num + 1
-                    next_tag = f"BUSINESS_PLAN.{next_num:02d}"
-                    
-                    # Check if we've reached the end of business plan questions
-                    if next_num > 46:  # Business plan is complete (restored to full 46 questions)
-                        # Business plan is complete, trigger completion
-                        return await handle_business_plan_completion(session_data, history)
-                    
-                    # Generate next question
-                    next_question_prompt = f"""
-                    The user has accepted the verification for business plan question {current_tag}. 
-                    Now move to the next business plan question: {next_tag}
-                    
-                    Generate the next business plan question in the sequence. Make sure to:
-                    1. Acknowledge their acceptance briefly (1-2 sentences)
-                    2. Ask the next sequential business plan question
-                    3. Include the proper tag: [[Q:{next_tag}]]
-                    4. Use structured format with proper line breaks
-                    5. Make it feel like a natural continuation of the business planning process
-                    """
-                    
-                    response = await client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[
-                            {"role": "system", "content": ANGEL_SYSTEM_PROMPT},
-                            {"role": "system", "content": TAG_PROMPT},
-                            {"role": "system", "content": FORMATTING_INSTRUCTION},
-                            {"role": "user", "content": next_question_prompt}
-                        ],
-                        temperature=0.7,
-                        max_tokens=1000
-                    )
-                    
-                    # Return the response with session update info
-                    return {
-                        "reply": response.choices[0].message.content,
-                        "patch_session": {
-                            "asked_q": next_tag,
-                            "answered_count": session_data.get("answered_count", 0) + 1
-                        }
-                    }
-                except (ValueError, IndexError):
-                    pass
-        
-        # For other cases, let the normal flow handle it
-        # Don't return a fallback here - let the main AI generation handle the response
+    # Accept command should be handled by AI naturally, not manually
+    # Let the system prompt in constant.py guide question progression
     
     # Add instruction for proper question formatting
     
@@ -1677,34 +1631,9 @@ Do NOT include question numbers, progress percentages, or step counts in your re
         # Update status to completed
         web_search_status = {"is_searching": False, "query": web_search_query, "completed": True}
 
-    # Check if this is an Accept command - handle it specially
-    if user_content.lower().strip() == "accept" and session_data and session_data.get("current_phase") == "BUSINESS_PLAN":
-        print(f"🔧 Accept command detected - moving to next question")
-        
-        # Move to next question by incrementing the question counter
-        current_tag = session_data.get("asked_q", "BUSINESS_PLAN.01")
-        if "." in current_tag:
-            phase, num = current_tag.split(".")
-            next_num = str(int(num) + 1).zfill(2)
-            next_tag = f"{phase}.{next_num}"
-            
-            # Update session data
-            session_data["asked_q"] = next_tag
-            session_data["answered_count"] = session_data.get("answered_count", 0) + 1
-            
-            # Generate the next question
-            next_question = await generate_next_question(next_tag, session_data)
-            
-            return {
-                "reply": next_question,
-                "web_search_status": {"is_searching": False, "query": None, "completed": False},
-                "immediate_response": None,
-                "patch_session": {
-                    "asked_q": next_tag,
-                    "answered_count": session_data["answered_count"]
-                }
-            }
-    
+    # Accept command should be handled by AI to generate next question naturally
+    # Do NOT manually increment question numbers or use generate_next_question()
+    # Let the AI follow the system prompt from constant.py
     # Check if this is a command that should not generate new questions
     is_command_response = user_content.lower() in ["draft", "support", "scrapping", "scraping", "draft more"] or user_content.lower().startswith("scrapping:")
     
@@ -1801,7 +1730,12 @@ Do NOT include question numbers, progress percentages, or step counts in your re
         if "." in asked_q:
             try:
                 current_num = int(asked_q.split(".")[1])
-                next_question_num = f"{current_num + 1:02d}"
+                # Prevent going beyond KYC.19 (last KYC question)
+                if current_phase == "KYC" and current_num >= 19:
+                    # Don't increment beyond 19 for KYC
+                    next_question_num = "19"
+                else:
+                    next_question_num = f"{current_num + 1:02d}"
             except (ValueError, IndexError):
                 pass
         
@@ -1876,6 +1810,15 @@ CRITICAL INSTRUCTIONS:
     # Ensure questions are properly separated
     reply_content = ensure_question_separation(reply_content, session_data)
     
+    # Check if we need to provide a section summary BEFORE updating asked_q
+    # (Check based on the PREVIOUS question that was just answered, not the next question)
+    current_tag_before_update = session_data.get("asked_q") if session_data else None
+    section_summary_info = None
+    
+    # Don't show section summary if user clicked Accept (they want to proceed)
+    if not is_accept_command:
+        section_summary_info = check_for_section_summary(current_tag_before_update, session_data, history)
+    
     # Extract question tag from reply and update session data BEFORE sequence validation
     patch_session = {}
     tag_match = re.search(r'\[\[Q:([A-Z_]+\.\d+)\]\]', reply_content)
@@ -1908,12 +1851,9 @@ CRITICAL INSTRUCTIONS:
     # Add proactive support guidance based on identified areas needing help
     reply_content = add_proactive_support_guidance(reply_content, session_data, history)
     
-    # Check if we need to provide a section summary
-    current_tag = session_data.get("asked_q") if session_data else None
-    # DISABLED: Section summaries causing issues - question numbers showing, repeating on "yes", not moving to next question
-    section_summary_info = None  # check_for_section_summary(current_tag, session_data, history)
-    
     if section_summary_info:
+        print(f"🎯 SECTION SUMMARY TRIGGERED for {section_summary_info['section_name']} at question {current_tag_before_update}")
+        
         # Add section summary requirements to the system prompt
         summary_instruction = f"""
 IMPORTANT: You have just completed {section_summary_info['section_name']} section. 
@@ -1924,7 +1864,7 @@ You MUST provide a comprehensive section summary that includes:
 3. **Critical Considerations**: Highlight important watchouts and considerations for this business type
 4. **Verification Request**: Ask user to verify the information before proceeding
 
-Use this format:
+Use this EXACT format:
 "🎯 **{section_summary_info['section_name']} Section Complete**
 
 **Summary of Your Information:**
@@ -1936,8 +1876,12 @@ Use this format:
 **Critical Considerations:**
 [Highlight important watchouts and things to consider]
 
-**Verification:**
-Here's what I've captured so far: [summary]. Does this look accurate to you? If not, please let me know where you'd like to modify and we'll work through this some more."
+**Ready to Continue?**
+Please confirm that this information is accurate before we move to the next section. You can either accept this summary and continue, or let me know what you'd like to modify.
+
+[[ACCEPT_MODIFY_BUTTONS]]"
+
+CRITICAL: End your response with [[ACCEPT_MODIFY_BUTTONS]] to trigger the Accept/Modify buttons. Do NOT ask the next question immediately.
 """
         # Add this instruction to the messages
         msgs.append({"role": "system", "content": summary_instruction})
@@ -1961,6 +1905,10 @@ Here's what I've captured so far: [summary]. Does this look accurate to you? If 
     
     # Use AI to determine if Accept/Modify buttons should be shown (pass session_data)
     button_detection = await should_show_accept_modify_buttons(reply_content, user_content, session_data)
+    
+    # Clean up internal tags before sending to user
+    # Remove [[ACCEPT_MODIFY_BUTTONS]] tag - it's only for backend detection, not display
+    reply_content = reply_content.replace("[[ACCEPT_MODIFY_BUTTONS]]", "").strip()
     
     return {
         "reply": reply_content,
@@ -2305,10 +2253,16 @@ We believe that every customer deserves solutions that are tailored to their spe
 {business_name} stands for combining industry expertise with personalized service, making professional solutions accessible and effective for customers in the {industry} sector."""
     
     elif any(keyword in current_question for keyword in ['sales', 'projected sales', 'first year', 'sales projections', 'revenue', 'income']):
-        return generate_sales_projection_draft(business_context, current_question)
+        return await generate_sales_projection_draft(business_context, current_question)
     
     elif any(keyword in current_question for keyword in ['startup costs', 'estimated startup costs', 'one-time expenses', 'initial costs', 'launch costs']):
-        return generate_startup_costs_table_draft(business_context, current_question)
+        return await generate_startup_costs_table_draft(business_context, current_question)
+    
+    elif any(keyword in current_question for keyword in ['monthly expenses', 'monthly operating expenses', 'recurring costs', 'operating expenses']):
+        return await generate_monthly_expenses_draft(business_context, current_question)
+    
+    elif any(keyword in current_question for keyword in ['customer acquisition cost', 'acquisition cost', 'customer acquisition']):
+        return await generate_customer_acquisition_cost_draft(business_context, current_question)
     
     elif any(keyword in current_question for keyword in ['financial', 'budget', 'costs', 'expenses', 'funding', 'investment']):
         return "Based on your business requirements, here's a draft for your financial planning: Your financial plan should include startup costs, operating expenses, cash flow projections, and funding requirements. Consider fixed costs (rent, salaries, equipment) and variable costs (materials, marketing, commissions). Focus on creating realistic budgets, identifying funding sources, and planning for financial sustainability. Think about break-even analysis, profit margins, and financial contingency planning to ensure long-term viability."
@@ -3037,28 +2991,8 @@ def extract_business_context_from_history(history):
     
     print(f"🔍 DEBUG - Extracting business context from {len(history)} messages with weighted priority")
     
-    # CRITICAL OVERRIDE: Check for plumbing business mentions first
-    plumbing_override = False
-    for msg in history:
-        if msg["role"] == "user" and msg.get("content"):
-            content_lower = msg["content"].lower()
-            # Strong plumbing indicators that should override everything
-            plumbing_indicators = [
-                "plumbing business", "plumbing company", "plumbing service", "plumber", 
-                "hvac", "pipe repair", "drain cleaning", "plumbing work", "plumbing industry",
-                "plumbing contractor", "plumbing excellence", "education-focused approach to plumbing",
-                "plumbing with education", "plumbing", "pipe", "drain", "hvac", "water heater",
-                "toilet repair", "sink repair", "faucet repair", "pipe installation"
-            ]
-            for indicator in plumbing_indicators:
-                if indicator in content_lower:
-                    plumbing_override = True
-                    business_context["industry"] = "Plumbing"
-                    context_weights["industry"] = 100  # Maximum weight
-                    print(f"🔍 DEBUG - 🚨 PLUMBING OVERRIDE ACTIVATED: Found '{indicator}' - setting industry to Plumbing (weight 100)")
-                    break
-            if plumbing_override:
-                break
+    # NO MORE HARDCODED OVERRIDES - Let AI naturally detect business type from conversation
+    # Removed plumbing-specific override logic - system now works for ALL business types dynamically
     
     # First pass: Identify KYC questions to prioritize their answers
     kyc_question_indices = {}
@@ -3088,49 +3022,13 @@ def extract_business_context_from_history(history):
             is_kyc_business_type_answer = "business_type" in kyc_question_indices and i == kyc_question_indices["business_type"] + 1
             is_kyc_location_answer = "location" in kyc_question_indices and i == kyc_question_indices["location"] + 1
             
-            # CRITICAL: Extract industry from KYC.11 answer (HIGHEST PRIORITY)
+            # Extract industry from KYC.11 answer - Use user's EXACT answer
             if is_kyc_industry_answer and len(content.strip()) > 2:
-                # This is the direct answer to "What industry does your business fall into?"
-                # Clean the answer and extract the core industry
+                # Use the user's exact answer - no keyword matching, no hardcoding
                 industry_answer = content.strip()
-                
-                # Handle detailed descriptions - extract primary business type
-                # Look for key industry terms in the answer
-                industry_keywords = {
-                    "plumbing": ["plumb", "pipe", "drain", "hvac", "water", "sewer"],
-                    "construction": ["construct", "build", "contractor", "renovation"],
-                    "healthcare": ["health", "medical", "clinic", "hospital", "doctor"],
-                    "technology": ["tech", "software", "app", "digital", "it", "development"],
-                    "food service": ["restaurant", "food", "cafe", "catering", "culinary"],
-                    "education": ["education", "school", "training", "tutoring", "teaching"],
-                    "retail": ["retail", "store", "shop", "sales", "merchandise"],
-                    "consulting": ["consult", "advisor", "professional services"],
-                    "real estate": ["real estate", "property", "housing"],
-                    "automotive": ["auto", "car", "vehicle", "mechanic"],
-                    "beauty": ["beauty", "salon", "spa", "cosmetic"],
-                    "fitness": ["fitness", "gym", "personal training", "wellness"]
-                }
-                
-                # Find matching industry from keywords
-                detected_industry = None
-                for industry_name, keywords in industry_keywords.items():
-                    for keyword in keywords:
-                        if keyword in content_lower:
-                            detected_industry = industry_name
-                            break
-                    if detected_industry:
-                        break
-                
-                # If we found a match, use it; otherwise use the raw answer
-                if detected_industry:
-                    business_context["industry"] = detected_industry.title()
-                    context_weights["industry"] = 100
-                    print(f"🔍 DEBUG - ⭐ HIGHEST PRIORITY: KYC.11 industry answer detected as '{detected_industry}' (weight 100)")
-                else:
-                    # Use first 50 chars of answer as industry
-                    business_context["industry"] = industry_answer[:50].title()
-                    context_weights["industry"] = 100
-                    print(f"🔍 DEBUG - ⭐ HIGHEST PRIORITY: KYC.11 industry answer: '{industry_answer[:50]}' (weight 100)")
+                business_context["industry"] = industry_answer
+                context_weights["industry"] = 100
+                print(f"🔍 DEBUG - ⭐ HIGHEST PRIORITY: KYC.11 industry answer (EXACT): '{industry_answer}' (weight 100)")
             
             # Extract business type from KYC.16 answer (HIGHEST PRIORITY)
             if is_kyc_business_type_answer and len(content.strip()) > 2:
@@ -3186,45 +3084,17 @@ def extract_business_context_from_history(history):
                             context_weights["business_name"] = 50
                             print(f"🔍 DEBUG - Found direct business name: {potential_name} (weight 50)")
             
-            # Extract industry information - Only if we don't have high-priority industry (weight < 50)
-            # Use keyword matching but with LOW weight (10-30) - easily overridden by KYC answers
+            # Extract industry from natural conversation - use exact user words, no keyword lists
+            # Only as fallback if KYC answer not available (weight < 100)
             if context_weights["industry"] < 50:
-                # Industry keyword detection with priority levels
-                # Higher priority industries (weight 30) - explicit business type mentions
-                high_priority_industries = {
-                    "plumbing": ["plumbing business", "plumbing company", "plumbing service", "plumber", "hvac", "pipe repair", "drain cleaning"],
-                    "construction": ["construction business", "construction company", "contractor", "general contractor"],
-                    "healthcare": ["healthcare business", "medical practice", "clinic", "hospital"],
-                    "restaurant": ["restaurant business", "restaurant", "food business", "cafe business"],
-                    "technology": ["tech business", "software company", "tech startup", "saas business"],
-                    "retail": ["retail business", "retail store", "shop business", "ecommerce business"],
-                    "real estate": ["real estate business", "property business", "real estate agency"],
-                    "consulting": ["consulting business", "consulting firm", "consulting services"]
-                }
-                
-                # Check high-priority patterns first
-                for industry_name, patterns in high_priority_industries.items():
-                    for pattern in patterns:
-                        if pattern in content_lower:
-                            if context_weights["industry"] < 30:
-                                business_context["industry"] = industry_name.title()
-                                context_weights["industry"] = 30
-                                print(f"🔍 DEBUG - Identified industry from high-priority pattern '{pattern}': {industry_name} (weight 30)")
-                                break
-                    if context_weights["industry"] >= 30:
-                        break
-            
-                # Lower priority single keywords (weight 10) - only if no high-priority match
-                if context_weights["industry"] < 20:
-                    common_industry_keywords = ["technology", "healthcare", "finance", "retail", "manufacturing", "education", "consulting", "food", "restaurant", "ecommerce", "software", "marketing", "real estate", "construction", "transportation", "entertainment", "media", "agriculture", "energy", "automotive", "ai development", "artificial intelligence", "development", "tech", "software development", "web development", "mobile development", "tea stall", "tea", "beverage", "food service", "hospitality", "cafe", "coffee shop", "plumbing", "beauty", "fitness", "legal"]
-                    for keyword in common_industry_keywords:
-                        if keyword in content_lower:
-                            # Allow keywords to override each other at same weight level
-                            if context_weights["industry"] <= 10:
-                                business_context["industry"] = keyword.title()
-                                context_weights["industry"] = 10
-                                print(f"🔍 DEBUG - Identified industry from keyword: {keyword} (weight 10 - LOW PRIORITY)")
-                                break
+                # Look for business/industry mentions in user's own words
+                if any(phrase in content_lower for phrase in ["business", "company", "startup", "industry", "service"]):
+                    # Extract the full phrase - let AI understand it later
+                    if len(content.strip()) > 5 and len(content.strip()) < 100:
+                        # Use user's exact words as industry descriptor
+                        business_context["industry"] = content.strip()
+                        context_weights["industry"] = 20
+                        print(f"🔍 DEBUG - Using user's exact description as industry: '{content.strip()[:50]}' (weight 20)")
             
             # Extract location information - Only if not from KYC (weight < 100)
             if context_weights["location"] < 100:
@@ -3621,7 +3491,7 @@ When you're ready, we'll show you the first real-world action to take — and we
 *This implementation process is tailored specifically to your "{business_name}" business in the {industry} industry, located in {location}. Every recommendation is designed to help you build the business of your dreams.*"""
     
     # Check if we should show Accept/Modify buttons
-    button_detection = should_show_accept_modify_buttons(
+    button_detection = await should_show_accept_modify_buttons(
         user_last_input="Roadmap completion",
         ai_response=transition_message,
         session_data=session_data
@@ -3898,109 +3768,233 @@ def generate_supplier_relationships_draft(business_context, history):
     business_type = business_context.get("business_type", "your business type")
     
     return f"Based on your business requirements, here's a comprehensive draft for your supplier and vendor relationships: {business_name} will need to identify key suppliers and vendors who can provide essential products, services, or resources for your {business_type} operations in the {industry} sector. Consider building relationships with reliable partners who offer competitive pricing, quality products, and consistent service. Key partners might include suppliers for raw materials or components specific to {industry}, service providers for essential business functions, and strategic partners who can help you reach your target market or enhance your offerings. Focus on reliability, quality, pricing, and long-term partnership potential. Evaluate potential partners based on their track record in the {industry} sector, financial stability, capacity to meet your needs, and alignment with your business values. Consider backup suppliers to ensure business continuity and negotiate favorable terms that support your growth objectives in the {industry} market."
-def generate_startup_costs_table_draft(business_context, current_question):
-    """Generate a table-based startup costs draft with totals"""
-    industry = business_context.get("industry", "your industry").lower()
+async def generate_startup_costs_table_draft(business_context, current_question):
+    """Generate dynamic, AI-powered startup costs table for ANY business type"""
+    industry = business_context.get("industry", "your industry")
     business_name = business_context.get("business_name", "your business")
+    location = business_context.get("location", "your location")
+    business_type = business_context.get("business_type", "service")
     
-    # Industry-specific startup costs
-    if "plumbing" in industry:
-        return f"""Based on your plumbing business needs, here's a comprehensive startup costs table:
+    # Use AI to generate industry-specific, location-aware startup costs
+    prompt = f"""You are a business finance expert. Generate a comprehensive startup costs table for a {industry} business named "{business_name}" in {location}.
+
+CONTEXT:
+- Business Type: {business_type}
+- Industry: {industry}
+- Location: {location}
+
+REQUIREMENTS:
+1. Include industry-specific equipment, tools, and technology
+2. Include all necessary licenses and certifications specific to {industry}
+3. Adjust costs realistically for {location}'s cost of living
+4. Provide 4-6 main categories with specific line items
+5. Give realistic cost ranges (minimum - maximum)
+6. Add helpful, industry-specific notes
+7. Calculate and show total estimated costs
+
+FORMAT EXACTLY AS BELOW:
 
 **Startup Costs Breakdown**
 
 | Category | Item | Estimated Cost | Notes |
 |----------|------|----------------|-------|
-| **Equipment & Tools** | | | |
-| | Plumbing tools & equipment | $3,000 - $5,000 | Wrenches, pipe cutters, drain snakes, etc. |
-| | Vehicle/van setup | $2,000 - $4,000 | Signage, equipment storage, GPS |
-| | Safety equipment | $500 - $1,000 | Hard hats, safety glasses, first aid kits |
-| **Licensing & Legal** | | | |
-| | Business license | $200 - $500 | Varies by location |
-| | Plumbing contractor license | $300 - $800 | Required for plumbing work |
-| | Insurance (general liability) | $1,200 - $2,400 | Annual premium |
-| | Legal consultation | $500 - $1,500 | Business setup, contracts |
-| **Technology & Marketing** | | | |
-| | Website development | $1,000 - $3,000 | Professional plumbing website |
-| | Business phone system | $200 - $500 | Setup and monthly service |
-| | Marketing materials | $500 - $1,500 | Business cards, flyers, online ads |
-| | Customer management software | $300 - $800 | Annual subscription |
-| **Working Capital** | | | |
-| | Initial inventory | $1,000 - $2,000 | Common plumbing parts & supplies |
-| | Emergency fund | $2,000 - $5,000 | 3-6 months operating expenses |
+| **[Category 1]** | | | |
+| | [Specific item] | $X,XXX - $X,XXX | [Helpful note] |
+| | [Specific item] | $X,XXX - $X,XXX | [Helpful note] |
+| **[Category 2]** | | | |
+| | [Specific item] | $X,XXX - $X,XXX | [Helpful note] |
+[... continue for all categories ...]
 
-**Total Estimated Startup Costs: $12,700 - $27,500**
+**Total Estimated Startup Costs: $XX,XXX - $XX,XXX**
 
-*Note: These are industry-specific estimates for plumbing businesses. Actual costs may vary based on location, scale, and specific requirements.*"""
-    
-    else:
-        return f"""Based on your {industry} business needs, here's a comprehensive startup costs table:
+*Note: [Add location and industry-specific context]*
 
-**Startup Costs Breakdown**
+Be specific to {industry}, not generic. Include actual industry requirements."""
 
-| Category | Item | Estimated Cost | Notes |
-|----------|------|----------------|-------|
-| **Equipment & Supplies** | | | |
-| | Essential equipment | $2,000 - $5,000 | Industry-specific tools/equipment |
-| | Initial inventory | $1,000 - $3,000 | Starting stock/supplies |
-| **Licensing & Legal** | | | |
-| | Business license | $200 - $500 | Varies by location |
-| | Professional licenses | $300 - $1,000 | Industry-specific requirements |
-| | Insurance | $800 - $2,000 | Annual premium |
-| | Legal consultation | $500 - $1,500 | Business setup, contracts |
-| **Technology & Marketing** | | | |
-| | Website development | $1,000 - $3,000 | Professional website |
-| | Business phone | $200 - $500 | Setup and service |
-| | Marketing materials | $500 - $1,500 | Business cards, advertising |
-| | Software/tools | $300 - $800 | Annual subscriptions |
-| **Working Capital** | | | |
-| | Emergency fund | $2,000 - $5,000 | 3-6 months operating expenses |
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1200
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Error generating startup costs: {e}")
+        # Fallback if AI fails
+        return f"""Based on your {industry} business in {location}, consider these startup cost categories:
 
-**Total Estimated Startup Costs: $8,800 - $23,800**
+**Key Startup Cost Areas:**
+- Industry-specific equipment and tools
+- Required business licenses and permits
+- Insurance and legal setup costs
+- Marketing and technology infrastructure
+- Working capital and inventory
 
-*Note: These are general estimates. Actual costs may vary based on your specific {industry} business requirements and location.*"""
-
-def generate_sales_projection_draft(business_context, current_question):
-    """Generate accurate sales projection draft with correct calculations"""
-    industry = business_context.get("industry", "your industry").lower()
+Please provide more details for a customized breakdown."""
+async def generate_sales_projection_draft(business_context, current_question):
+    """Generate dynamic, AI-powered sales projections for ANY business type"""
+    industry = business_context.get("industry", "your industry")
     business_name = business_context.get("business_name", "your business")
+    location = business_context.get("location", "your location")
+    business_type = business_context.get("business_type", "service")
     
-    if "plumbing" in industry:
-        return f"""Based on your plumbing business goals, here's a draft for your first-year sales projections:
+    prompt = f"""You are a business finance expert. Generate realistic first-year sales projections for "{business_name}" - a {industry} business in {location}.
 
-**Sales Projection Calculation**
+CONTEXT:
+- Industry: {industry}
+- Business Type: {business_type}
+- Location: {location}
 
-**Weekly Job Estimate:** Starting with 4 jobs per week for a growing plumbing business provides a steady flow of work while allowing room for marketing and operations.
+Generate industry-specific sales projections using the CORRECT revenue model for {industry}:
+- Service business: billable hours × hourly rate OR number of jobs × average price
+- Product business: units sold × price per unit
+- SaaS: monthly subscribers × price × 12 months
+- Restaurant: covers per day × average check × days per year
+- Retail: foot traffic × conversion rate × average purchase
+- Consulting: billable hours × hourly rate × utilization rate
 
-**Service Mix:** Include a mix of installations and repairs to diversify income streams and mitigate risks from seasonal demand fluctuations.
+REQUIREMENTS:
+1. Use industry-standard pricing for {industry} in {location}
+2. Provide detailed calculation breakdown with correct math
+3. Show weekly/monthly/annual projections
+4. Include growth assumptions
+5. Add critical considerations for {industry}
+6. Format with clear sections and calculations
 
-**Revenue Calculation:**
-- **Jobs per week:** 4
-- **Average billable hours per job:** 8 hours
-- **Hourly rate:** $120
-- **Weeks per year:** 52
+Be SPECIFIC to {industry} - use correct metrics, pricing, and volume assumptions for that industry."""
 
-**Annual Revenue Calculation:**
-4 jobs/week × 8 hours/job × $120/hour × 52 weeks = **$199,680**
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1000
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Error generating sales projections: {e}")
+        return f"""Based on your {industry} business goals, create realistic first-year sales projections considering:
+- Industry-standard pricing for {industry}
+- Market size and accessibility in {location}
+- Customer acquisition rate and conversion
+- Seasonal variations
+- Growth trajectory"""
 
-**Customer Base Growth:** As reputation and customer base grow, job frequency might increase, enhancing revenue potential.
-
-**Critical Considerations:**
-- **Demand Variability:** Be prepared for fluctuations in demand and consider strategies like targeted marketing or seasonal promotions to maintain consistent job flow.
-- **Capacity Planning:** Ensure sufficient resources and tools to handle the projected workload efficiently.
-
-*Note: These projections are based on industry-standard rates for plumbing services. Actual results may vary based on market conditions, competition, and business execution.*"""
+async def generate_monthly_expenses_draft(business_context, current_question):
+    """Generate dynamic, AI-powered monthly expenses for ANY business type"""
+    industry = business_context.get("industry", "your industry")
+    business_name = business_context.get("business_name", "your business")
+    location = business_context.get("location", "your location")
+    business_type = business_context.get("business_type", "service")
     
-    else:
-        return f"""Based on your {industry} business goals, here's a draft for your first-year sales projections:
+    prompt = f"""You are a business finance expert. Generate realistic monthly operating expenses for "{business_name}" - a {industry} business in {location}.
 
-Your projected sales for the first year should be based on realistic market analysis and conservative estimates. Consider factors like your target market size, customer acquisition rate, pricing strategy, and seasonal variations. Focus on creating projections that account for market penetration, customer lifetime value, and repeat business. Think about how you'll reach customers and what conversion rates you can realistically expect based on industry benchmarks and your marketing capabilities.
+CONTEXT:
+- Industry: {industry}
+- Business Type: {business_type}
+- Location: {location}
 
-**Key Factors to Consider:**
-- Target market size and accessibility
-- Pricing strategy and competitive positioning
-- Customer acquisition costs and conversion rates
-- Seasonal variations in demand
-- Repeat business and customer lifetime value
+REQUIREMENTS:
+1. Include industry-specific expense categories for {industry}
+2. Automatically adjust ALL costs for {location}'s cost of living (research typical costs for that area)
+3. Include ALL necessary expenses (don't miss vehicle costs if needed, rent if needed, etc.)
+4. Provide realistic cost ranges (min - max)
+5. Add helpful notes for each line item
+6. Calculate total monthly expenses
+7. Format as a table
 
-*Note: Create detailed monthly projections and consider different scenarios (conservative, realistic, optimistic) to plan for various market conditions.*"""
+For {industry} businesses, typical expense categories might include:
+- Staffing (wages appropriate for {location})
+- Facilities/rent (if needed for {industry})
+- Vehicle costs (if {industry} requires transportation)
+- Equipment/tools maintenance
+- Materials/inventory
+- Marketing & advertising
+- Insurance & licenses
+- Technology/software
+- Utilities
+
+**Total Monthly Expenses: $X,XXX - $X,XXX**
+
+Adjust ALL numbers for {location}. Be SPECIFIC to {industry}."""
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1200
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Error generating monthly expenses: {e}")
+        return f"""Based on your {industry} business in {location}, consider these monthly expense categories:
+- Staffing costs
+- Facility/rent (if applicable)
+- Vehicle/transportation (if applicable)
+- Materials/inventory
+- Marketing & advertising
+- Insurance & licenses
+- Technology & software"""
+async def generate_customer_acquisition_cost_draft(business_context, current_question):
+    """Generate dynamic, AI-powered CAC analysis for ANY business type"""
+    industry = business_context.get("industry", "your industry")
+    business_name = business_context.get("business_name", "your business")
+    location = business_context.get("location", "your location")
+    business_type = business_context.get("business_type", "service")
+    
+    prompt = f"""You are a business marketing expert. Generate a comprehensive Customer Acquisition Cost (CAC) analysis for "{business_name}" - a {industry} business in {location}.
+
+CONTEXT:
+- Industry: {industry}
+- Business Type: {business_type}
+- Location: {location}
+
+REQUIREMENTS:
+1. Identify industry-appropriate marketing channels for {industry} (NOT generic)
+2. Use realistic costs for {location}'s market
+3. Provide detailed CAC breakdown by channel
+4. Calculate profitability (LTV:CAC ratio)
+5. Give optimization recommendations
+6. Format as tables
+
+Marketing channels should be SPECIFIC to {industry}:
+- B2B SaaS: LinkedIn Ads, content marketing, cold outreach, webinars
+- Restaurant: Local SEO, food delivery apps, Instagram, Yelp
+- E-commerce: Facebook/Instagram ads, Google Shopping, influencers
+- Consulting: LinkedIn, referrals, speaking engagements, thought leadership
+- Retail: Local ads, social media, events, partnerships
+- Professional services: Referrals, networking, SEO, professional directories
+
+Include:
+- Monthly cost per channel
+- Leads generated
+- Conversion rates (industry-realistic)
+- CAC per channel
+- Total CAC
+- LTV calculation
+- LTV:CAC ratio
+- Profitability assessment
+- Optimization recommendations
+
+Be SPECIFIC to {industry} - use actual channels that industry uses, not generic ones."""
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1500
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Error generating CAC analysis: {e}")
+        return f"""Customer Acquisition Cost Analysis for {industry} business:
+
+Consider industry-appropriate channels for {industry}:
+- Research which channels work best for {industry}
+- Calculate realistic costs for {location}
+- Determine conversion rates
+- Calculate LTV:CAC ratio
+- Assess profitability"""

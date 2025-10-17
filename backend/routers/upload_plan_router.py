@@ -8,7 +8,7 @@ import tempfile
 
 router = APIRouter()
 
-@router.post("/upload-plan")
+@router.post("/")
 async def upload_business_plan(
     request: Request,
     file: UploadFile = File(...),
@@ -18,6 +18,8 @@ async def upload_business_plan(
     Upload and process a business plan document (does NOT store in database)
     Simply extracts business info and returns it to frontend for session update
     Supports: PDF, DOCX, TXT files
+    
+    Endpoint: POST /upload-plan (router prefix + "/" = /upload-plan)
     """
     temp_file_path = None
     
