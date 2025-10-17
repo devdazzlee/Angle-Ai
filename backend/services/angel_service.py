@@ -1543,7 +1543,13 @@ Do NOT include question numbers, progress percentages, or step counts in your re
         if current_tag and current_tag.startswith("BUSINESS_PLAN."):
             try:
                 question_num = int(current_tag.split(".")[1])
-                if question_num > 46:  # Business Plan complete AFTER question 46 is answered
+                # Check if user just answered the final question (46) with any response
+                if (question_num >= 46 and 
+                    not current_tag.endswith("_ACK") and
+                    len(user_content.strip()) > 0):
+                    
+                    print(f"🎯 User answered final Business Plan question ({question_num}) - triggering roadmap transition immediately")
+                    # Trigger roadmap transition immediately
                     return await handle_business_plan_completion(session_data, history)
             except (ValueError, IndexError):
                 pass
