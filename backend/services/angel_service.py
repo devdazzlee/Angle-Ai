@@ -1537,7 +1537,7 @@ Do NOT include question numbers, progress percentages, or step counts in your re
         if current_tag and current_tag.startswith("BUSINESS_PLAN."):
             try:
                 question_num = int(current_tag.split(".")[1])
-                if question_num >= 46:  # Business Plan complete (restored to full 46 questions)
+                if question_num > 46:  # Business Plan complete AFTER question 46 is answered
                     return await handle_business_plan_completion(session_data, history)
             except (ValueError, IndexError):
                 pass
@@ -1815,9 +1815,10 @@ CRITICAL INSTRUCTIONS:
     current_tag_before_update = session_data.get("asked_q") if session_data else None
     section_summary_info = None
     
+    # DISABLED: Section summaries were causing question 46 to be skipped
     # Don't show section summary if user clicked Accept (they want to proceed)
-    if not is_accept_command:
-        section_summary_info = check_for_section_summary(current_tag_before_update, session_data, history)
+    # if not is_accept_command:
+    #     section_summary_info = check_for_section_summary(current_tag_before_update, session_data, history)
     
     # Extract question tag from reply and update session data BEFORE sequence validation
     patch_session = {}
